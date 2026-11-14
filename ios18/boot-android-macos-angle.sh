@@ -125,6 +125,9 @@ cmake --preset macos-android17
 cmake --build .build/presets/macos-android17 --target uml-darwin-android17 -j 4 -- -k 0
 EMULATOR=$(find .build/presets/macos-android17 -name uml-darwin-android17 -type f | head -1)
 otool -L "$EMULATOR" | grep -E 'EGL|GLES' || true
+# ANGLE's macOS libEGL opens "libGLESv2.dylib" beside itself.
+ln -sf ../libGLESv2.framework/libGLESv2 "$(dirname "$EMULATOR")/Frameworks/libEGL.framework/libGLESv2.dylib"
+ls -la "$(dirname "$EMULATOR")/Frameworks/libEGL.framework"
 
 stage "boot Android headless on ANGLE"
 CPUS=$(sysctl -n hw.ncpu)
