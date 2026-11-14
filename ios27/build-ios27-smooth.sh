@@ -10,10 +10,6 @@ WORK=$(cd "$2" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)
 stage() { echo; echo "===== STAGE: $* ====="; }
 
-mkdir -p "$WORK/tools"
-printf '#!/bin/sh\nexec python3 -m mesonbuild.mesonmain "$@"\n' > "$WORK/tools/meson"
-chmod +x "$WORK/tools/meson"
-export PATH="$WORK/tools:$PATH"
 for tool in autoconf automake libtool pkg-config ninja cmake bison flex groff; do
   HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"
 done
@@ -27,9 +23,12 @@ python3 "$HERE/../ios18/refresh_patch.py" "$UPSTREAM" app
 stage "upstream GPU stack for the device (Mesa Zink, KosmicKrisp, virglrenderer)"
 # Upstream's GPU build runs its tools in a clean environment and looks for them
 # in this virtual environment (dependencies/README.md).
+unset PYTHONPATH
 python3 -m venv .build/gpu-tools-venv
 .build/gpu-tools-venv/bin/pip install --quiet meson==1.12.1 Mako==1.4.3 packaging==26.3 PyYAML==6.0.3 ply==3.11
 export UML_MESA_PYTHON="$UPSTREAM/.build/gpu-tools-venv/bin/python3"
+export PATH="$UPSTREAM/.build/gpu-tools-venv/bin:$PATH"
+meson --version
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
 bash dependencies/build-apple-gpu.sh --platform ios
 
