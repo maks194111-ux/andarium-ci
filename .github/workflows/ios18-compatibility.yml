@@ -2,6 +2,11 @@
 name: iOS 18 compatibility compilation
 on:
   workflow_dispatch:
+    inputs:
+      run_model_tests:
+        description: Run unchanged model suites as well as UI compilation
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -27,6 +32,7 @@ jobs:
           git -C upstream checkout --detach FETCH_HEAD
           python3 ci/ios18/apply.py upstream
       - name: Test model code with lowered platform requirements
+        if: inputs.run_model_tests
         shell: bash
         run: |
           set -euo pipefail
