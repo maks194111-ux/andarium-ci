@@ -45,7 +45,27 @@ int main() {
         EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE
     };
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttributes);
-    require(context != EGL_NO_CONTEXT, "create required OpenGL 4.6 core context");
+    if (context == EGL_NO_CONTEXT) {
+        // Diagnostic only: report the highest version the driver offers, then fail.
+        const int versions[][2] = {{4,5},{4,3},{4,1},{4,0},{3,3},{3,2},{3,1},{3,0},{2,1}};
+        for (const auto& v : versions) {
+            const EGLint core[] = {EGL_CONTEXT_MAJOR_VERSION, v[0], EGL_CONTEXT_MINOR_VERSION, v[1],
+                EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
+            const EGLint legacy[] = {EGL_CONTEXT_MAJOR_VERSION, v[0], EGL_CONTEXT_MINOR_VERSION, v[1], EGL_NONE};
+            EGLContext lower = eglCreateContext(display, config, EGL_NO_CONTEXT, v[0] > 3 || v[1] >= 2 && v[0] == 3 ? core : legacy);
+            if (lower == EGL_NO_CONTEXT) continue;
+            std::fprintf(stderr, "DIAGNOSTIC: highest desktop OpenGL offered is %d.%d, 4.6 required\n", v[0], v[1]);
+            if (eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, lower)) {
+                const auto str = proc<PFNGLGETSTRINGPROC>("glGetString");
+                std::fprintf(stderr, "DIAGNOSTIC: %s / %s\n",
+                    reinterpret_cast<const char*>(str(GL_VERSION)),
+                    reinterpret_cast<const char*>(str(GL_RENDERER)));
+            }
+            break;
+        }
+        std::fprintf(stderr, "FAIL: create required OpenGL 4.6 core context\n");
+        return 1;
+    }
     const EGLint surfaceAttributes[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
     EGLSurface surface = eglCreatePbufferSurface(display, config, surfaceAttributes);
     require(surface != EGL_NO_SURFACE, "create offscreen surface");
