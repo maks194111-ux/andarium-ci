@@ -82,3 +82,21 @@ jobs:
             echo "ANGLE Metal built for macOS (rendered a frame) and linked for the arm64 iOS 18 device."
             echo "Not run on a phone; not yet joined to the Android graphics bridge."
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package libraries and headers for later bridge builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd angle-root/angle
+          mkdir -p "$RUNNER_TEMP/angle-package/macos" "$RUNNER_TEMP/angle-package/ios"
+          cp out/mac/libEGL.dylib out/mac/libGLESv2.dylib "$RUNNER_TEMP/angle-package/macos/"
+          cp -R out/ios/libEGL.framework out/ios/libGLESv2.framework "$RUNNER_TEMP/angle-package/ios/"
+          cp -R include "$RUNNER_TEMP/angle-package/include"
+          cp LICENSE "$RUNNER_TEMP/angle-package/"
+          echo "$ANGLE_COMMIT" > "$RUNNER_TEMP/angle-package/COMMIT"
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/angle-package.tar.gz" angle-package
+          shasum -a 256 "$RUNNER_TEMP/angle-package.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: angle-metal
+          path: ${{ runner.temp }}/angle-package.tar.gz
+          retention-days: 30
