@@ -160,6 +160,7 @@ sink.replace('''            if (![engine_ connect:player_
              '''            if (!umlConnect(engine_, player_, engine_.mainMixerNode,
                             format_, &connectError)) {''')
 sink.replace("[player_ playAndReturnError:&error]", "umlPlay(player_, &error)", 3)
+sink.replace("[player playAndReturnError:&error]", "umlPlay(player, &error)")
 sink.wrap("        deactivationObserver_ = [[NSNotificationCenter defaultCenter]\n", "#endif\n",
           "        if (@available(iOS 27.0, *)) {\n",
           '''        } else {
