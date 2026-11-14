@@ -14,11 +14,11 @@ using EGLint = int; using EGLAttrib = intptr_t;
 
 static void fail(const char* what) { std::fprintf(stderr, "FAIL: %s\n", what); std::exit(1); }
 template <class T> static T sym(void* lib, const char* name) {
-    void* p = dlsym(lib, name);
-    if (!p) {  // some ANGLE builds export EGL_Foo / GL_Foo instead of eglFoo / glFoo
-        std::string alternate = name[0] == 'e' ? "EGL_" + std::string(name + 3) : "GL_" + std::string(name + 2);
-        p = dlsym(lib, alternate.c_str());
-    }
+    // Prefer ANGLE's own GL_Foo / EGL_Foo names: a plain glFoo lookup can resolve to
+    // the system OpenGL framework through the library's dependencies.
+    const std::string alternate = name[0] == 'e' ? "EGL_" + std::string(name + 3) : "GL_" + std::string(name + 2);
+    void* p = dlsym(lib, alternate.c_str());
+    if (!p) p = dlsym(lib, name);
     if (!p) fail(name);
     return reinterpret_cast<T>(p);
 }
