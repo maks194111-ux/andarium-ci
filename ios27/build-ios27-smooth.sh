@@ -25,6 +25,11 @@ python3 "$HERE/../ios18/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/../ios18/refresh_patch.py" "$UPSTREAM" app
 
 stage "upstream GPU stack for the device (Mesa Zink, KosmicKrisp, virglrenderer)"
+# Upstream's GPU build runs its tools in a clean environment and looks for them
+# in this virtual environment (dependencies/README.md).
+python3 -m venv .build/gpu-tools-venv
+.build/gpu-tools-venv/bin/pip install --quiet meson==1.12.1 Mako==1.4.3 packaging==26.3 PyYAML==6.0.3 ply==3.11
+export UML_MESA_PYTHON="$UPSTREAM/.build/gpu-tools-venv/bin/python3"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
 bash dependencies/build-apple-gpu.sh --platform ios
 
