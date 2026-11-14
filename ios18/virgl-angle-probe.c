@@ -63,7 +63,7 @@ int main(void)
 {
    setvbuf(stdout, NULL, _IONBF, 0);
    const EGLAttrib display_attributes[] = {0x3203 /* PLATFORM_ANGLE_TYPE */, 0x3489 /* METAL */, EGL_NONE};
-   display = eglGetPlatformDisplay(0x3202 /* EGL_PLATFORM_ANGLE_ANGLE */, EGL_DEFAULT_DISPLAY, display_attributes);
+   display = eglGetPlatformDisplay(0x3202 /* EGL_PLATFORM_ANGLE_ANGLE */, NULL, display_attributes);
    if (display == EGL_NO_DISPLAY) fail("ANGLE Metal display");
    EGLint major, minor;
    if (!eglInitialize(display, &major, &minor)) fail("initialize ANGLE");
@@ -86,16 +86,16 @@ int main(void)
           (const char *)glGetString(GL_RENDERER));
 
    uint32_t version = 0, size = 0;
-   virgl_renderer_get_cap_set(VIRGL_RENDERER_CAPSET_VIRGL2, &version, &size);
+   virgl_renderer_get_cap_set(2 /* VIRGL2 capset */, &version, &size);
    if (!size) { fprintf(stderr, "FAIL: no Virgl capability set\n"); return 1; }
    union virgl_caps *caps = calloc(1, size > sizeof(*caps) ? size : sizeof(*caps));
-   virgl_renderer_fill_caps(VIRGL_RENDERER_CAPSET_VIRGL2, version, caps);
+   virgl_renderer_fill_caps(2 /* VIRGL2 capset */, version, caps);
    printf("capset version %u size %u\n", version, size);
    printf("guest GLSL level %u, render targets %u, max samples %u\n",
           caps->v1.glsl_level, caps->v1.max_render_targets, caps->v1.max_samples);
-   printf("max texture 2D %u, UBOs %u, transform feedback buffers %u, capability bits 0x%x / v2 0x%x\n",
+   printf("max texture 2D %u, UBOs %u, dual-source targets %u, capability bits 0x%x / v2 0x%x\n",
           caps->v2.max_texture_2d_size, caps->v1.max_uniform_blocks,
-          caps->v1.max_streams, caps->v2.capability_bits, caps->v2.capability_bits_v2);
+          caps->v1.max_dual_source_render_targets, caps->v2.capability_bits, caps->v2.capability_bits_v2);
 
    const uint32_t context = 1, resource = 1, surface = 1;
    result = virgl_renderer_context_create(context, 5, "probe");
