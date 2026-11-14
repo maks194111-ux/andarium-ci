@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: MIT
+name: Andarium macOS readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: andarium-readiness
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    # Do not spend private-repository minutes or use paid larger runners.
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - name: Read toolchain and host limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          sw_vers -productVersion
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk macosx --show-sdk-version
+          sysctl -n hw.memsize
+          df -h .
+          {
+            echo "## Scope"
+            echo "Readiness and Swift model compilation only."
+            echo "No IPA, Android boot, iOS 18 compatibility or FPS result."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Read pinned public upstream source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init upstream
+          git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
+          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream checkout --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+
+      - name: Probe actual Metal device availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/metal-probe.swift" <<'SWIFT'
+          import Metal
+          let devices = MTLCopyAllDevices()
+          print("Metal device count: \(devices.count)")
+          var hasMetal4 = false
+          for device in devices {
+              if #available(macOS 26.0, *) {
+                  hasMetal4 = hasMetal4 || device.supportsFamily(.metal4)
+              }
+          }
+          print("Metal 4 family available: \(hasMetal4)")
+          print("Availability alone does not prove Andarium GPU execution.")
+          SWIFT
+          xcrun swift "$RUNNER_TEMP/metal-probe.swift" | tee "$RUNNER_TEMP/metal-result.txt"
+          cat "$RUNNER_TEMP/metal-result.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compile upstream Swift model libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift build --package-path upstream/Andarium/AndariumCore --jobs 2
+          echo "Swift model libraries compiled; native emulator not built." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run model tests only on a supported host OS
+        shell: bash
+        run: |
+          set -euo pipefail
+          major="$(sw_vers -productVersion | cut -d. -f1)"
+          if (( major < 27 )); then
+            echo "::warning::Upstream model tests require macOS 27. Tests NOT RUN on this host."
+            echo "Model tests NOT RUN: host is below macOS 27." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          swift test --package-path upstream/GuestHost/Core --jobs 2
+          swift test --package-path upstream/Andarium/AndariumCore --jobs 2
+          echo "Both Swift model test suites passed." >> "$GITHUB_STEP_SUMMARY"
