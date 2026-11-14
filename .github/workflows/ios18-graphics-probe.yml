@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 candidate graphics driver probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-graphics-probe
+  cancel-in-progress: true
+jobs:
+  probe:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - name: Get probe source and pinned public driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          curl -fL --max-time 120 \
+            https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar \
+            -o "$RUNNER_TEMP/MoltenVK.tar"
+          echo "f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e  $RUNNER_TEMP/MoltenVK.tar" | shasum -a 256 -c -
+          tar xf "$RUNNER_TEMP/MoltenVK.tar" -C "$RUNNER_TEMP"
+      - name: Compile and execute a real Vulkan queue operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          driver="$RUNNER_TEMP/MoltenVK/MoltenVK"
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -Wno-missing-field-initializers \
+            -I "$driver/include" ci/ios18/vulkan-probe.cpp \
+            -L "$driver/dynamic/dylib/macOS" -lMoltenVK \
+            -Wl,-rpath,"$driver/dynamic/dylib/macOS" -o "$RUNNER_TEMP/vulkan-probe"
+          "$RUNNER_TEMP/vulkan-probe" | tee "$RUNNER_TEMP/probe-result.txt"
+          {
+            echo "## Candidate driver only"
+            cat "$RUNNER_TEMP/probe-result.txt"
+            echo "No Andarium integration, iOS execution or FPS claim."
+          } >> "$GITHUB_STEP_SUMMARY"
