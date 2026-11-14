@@ -100,5 +100,7 @@ stage "configure the device Android runtime"
 cmake --preset kernarium-ios-device-android
 
 stage "build the device Android runtime"
-cmake --build --preset kernarium-ios-device-android -j 4
+# Upstream's architecture audit forbids the Virgl-only mode on a device; this
+# experiment is exactly that, so only the runtime target is built.
+cmake --build .build/kernarium-runtime-ios-device-android-4k --target KernariumRuntime -j 4
 find .build -maxdepth 4 -name '*.framework' | head
