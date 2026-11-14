@@ -65,6 +65,17 @@ int main() {
                             "VK_EXT_metal_objects", "VK_EXT_image_drm_format_modifier",
                             "VK_EXT_transform_feedback", "VK_KHR_timeline_semaphore"})
         std::printf("%s: %s\n", name, has(name) ? "available" : "absent");
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+    if (has("VK_EXT_robustness2") || has("VK_KHR_robustness2")) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features.pNext = &robustness;
+        vkGetPhysicalDeviceFeatures2(physical, &features);
+    }
+    std::printf("Zink prerequisite nullDescriptor: %s\n",
+                robustness.nullDescriptor ? "supported" : "NOT SUPPORTED");
+    if (!robustness.nullDescriptor)
+        std::puts("A buffer-test pass below does NOT make this driver compatible with Zink.");
     uint32_t queueCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical, &queueCount, nullptr);
     std::vector<VkQueueFamilyProperties> families(queueCount);
