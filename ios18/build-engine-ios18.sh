@@ -111,3 +111,25 @@ BINARY="$RUNTIME/$(basename "$RUNTIME" .framework)"
 xcrun vtool -show-build "$BINARY" | grep -E 'platform|minos'
 otool -L "$BINARY"
 echo "Device runtime framework built for iOS 18 (not yet packaged into an app)."
+
+stage "compression framework"
+bash dependencies/prepare.sh --product ios-compression
+bash dependencies/build-ios-zstd.sh
+
+stage "package frameworks for the app"
+OUT="$UPSTREAM/.build/kernarium-xcframeworks"
+rm -rf "$OUT"; mkdir -p "$OUT"
+cp -R "$RUNTIME" "$WORK/$(basename "$RUNTIME")"
+strip -S "$WORK/$(basename "$RUNTIME")/$(basename "$RUNTIME" .framework)"
+xcodebuild -create-xcframework -framework "$WORK/$(basename "$RUNTIME")" \
+  -output "$OUT/KRuntime_Android_6_18_4K.xcframework"
+for framework in libEGL libGLESv2; do
+  ls -la "$PREFIX/Frameworks/$framework.framework"
+  xcodebuild -create-xcframework -framework "$PREFIX/Frameworks/$framework.framework" \
+    -output "$OUT/$framework.xcframework"
+done
+cp -R .build/dependencies/ios-zstd/LibZstd.xcframework "$OUT/"
+du -sh "$OUT"/*
+tar -C "$UPSTREAM/.build" -czf "$WORK/engine-ios18.tar.gz" kernarium-xcframeworks
+ls -la "$WORK/engine-ios18.tar.gz"
+echo "Frameworks packaged for the iOS 18 app build."
