@@ -10,10 +10,9 @@ WORK=$(cd "$2" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)
 stage() { echo; echo "===== STAGE: $* ====="; }
 
-for tool in autoconf automake libtool pkg-config ninja cmake bison flex groff; do
+for tool in autoconf automake libtool pkg-config ninja cmake groff; do
   HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"
 done
-export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
 
 cd "$UPSTREAM"
 stage "refresh-rate change"
