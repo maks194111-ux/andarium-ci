@@ -29,5 +29,7 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror ci/ios18/angle-probe.cpp -o "$RUNNER_TEMP/angle-probe"
           python3 - "$RUNNER_TEMP/angle-probe" "$lib" <<'PY'
           import subprocess, sys
-          subprocess.run([sys.argv[1], *sys.argv[2].split()], check=True, timeout=90)
+          result = subprocess.run([sys.argv[1], *sys.argv[2].split()], timeout=90)
+          print("probe exit status", result.returncode, flush=True)
+          sys.exit(result.returncode != 0)
           PY
