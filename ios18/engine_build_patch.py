@@ -39,7 +39,7 @@ for script in ("dependencies/build-ios-network.sh", "dependencies/ios-static-xcf
 
 # The prefix verifiers and platform contracts name the same floor.
 floor_files = sorted((root / "dependencies/cmake").glob("*.cmake")) + \
-    sorted((root / "dependencies/platforms").glob("ios-device-*.tsv"))
+    sorted((root / "dependencies/platforms").glob("ios-*.tsv"))
 changed = 0
 for floor_file in floor_files:
     floor_text = floor_file.read_text()
