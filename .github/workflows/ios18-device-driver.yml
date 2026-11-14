@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 device driver link
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-device-driver
+  cancel-in-progress: true
+jobs:
+  link:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - name: Fetch probe source and pinned iPhone driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          curl -fL --max-time 120 \
+            https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar \
+            -o "$RUNNER_TEMP/MoltenVK-ios.tar"
+          echo "b5d947b1660e6e9fed40b9cd2387e160aaab9e80b775c0cef7e14059405178c1  $RUNNER_TEMP/MoltenVK-ios.tar" | shasum -a 256 -c -
+          tar xf "$RUNNER_TEMP/MoltenVK-ios.tar" -C "$RUNNER_TEMP"
+      - name: Link for an actual iOS 18 arm64 device
+        shell: bash
+        run: |
+          set -euo pipefail
+          driver="$RUNNER_TEMP/MoltenVK/MoltenVK"
+          xcrun --sdk iphoneos clang++ -std=c++17 \
+            -target arm64-apple-ios18.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -Wall -Wextra -Werror -Wno-missing-field-initializers \
+            -I "$driver/include" ci/ios18/vulkan-probe.cpp \
+            -F "$driver/dynamic/MoltenVK.xcframework/ios-arm64" -framework MoltenVK \
+            -Wl,-fatal_warnings -Wl,-rpath,@executable_path/Frameworks \
+            -o "$RUNNER_TEMP/ios18-vulkan-probe"
+          python3 - "$RUNNER_TEMP/ios18-vulkan-probe" \
+            "$driver/dynamic/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK" <<'PY'
+          import re
+          import subprocess
+          import sys
+          for path in sys.argv[1:]:
+              text = subprocess.check_output(["xcrun", "vtool", "-show-build", path], text=True)
+              minimums = re.findall(r"\bminos\s+(\d+(?:\.\d+)*)", text)
+              if not minimums or not re.search(r"\bplatform\s+IOS\b", text):
+                  raise SystemExit("Missing iOS load-command metadata")
+              if any(tuple((list(map(int, version.split("."))) + [0, 0])[:3]) > (18, 0, 0)
+                     for version in minimums):
+                  raise SystemExit(f"Binary requires newer than iOS 18: {minimums}")
+              print(f"PASS: iOS load-command minimum {', '.join(minimums)}")
+          PY
+          {
+            echo "arm64 iOS 18 probe linked against pinned MoltenVK."
+            echo "Probe and driver minimum OS load commands verified."
+            echo "No signing, installation, Android boot or device execution performed."
+          } >> "$GITHUB_STEP_SUMMARY"
