@@ -23,6 +23,7 @@ cd "$UPSTREAM"
 stage "retarget build system"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM"
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
+python3 "$HERE/engine_api_patch.py" "$UPSTREAM"
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
@@ -104,4 +105,9 @@ stage "build the device Android runtime"
 # Upstream's architecture audit forbids the Virgl-only mode on a device; this
 # experiment is exactly that, so only the runtime target is built.
 cmake --build .build/kernarium-runtime-ios-device-android-4k --target KernariumRuntime -j 4 -- -k 0
-find .build -maxdepth 4 -name '*.framework' | head
+RUNTIME=$(find .build/kernarium-runtime-ios-device-android-4k -maxdepth 4 -name '*.framework' | head -1)
+ls -la "$RUNTIME"
+BINARY="$RUNTIME/$(basename "$RUNTIME" .framework)"
+xcrun vtool -show-build "$BINARY" | grep -E 'platform|minos'
+otool -L "$BINARY"
+echo "Device runtime framework built for iOS 18 (not yet packaged into an app)."
