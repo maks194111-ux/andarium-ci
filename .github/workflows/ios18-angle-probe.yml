@@ -23,10 +23,11 @@ jobs:
         run: |
           set -euo pipefail
           # Lives in the dyld shared cache; the same backend serves WebGL on iOS.
-          lib=/System/Library/PrivateFrameworks/WebCore.framework/Frameworks/libANGLE-shared.dylib
+          w=Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Frameworks/libANGLE-shared.dylib
+          lib="/System/Library/$w /System/Cryptexes/OS/System/Library/$w /System/Volumes/Preboot/Cryptexes/OS/System/Library/$w /System/Library/PrivateFrameworks/WebCore.framework/Versions/A/Frameworks/libANGLE-shared.dylib"
           sw_vers
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror ci/ios18/angle-probe.cpp -o "$RUNNER_TEMP/angle-probe"
           python3 - "$RUNNER_TEMP/angle-probe" "$lib" <<'PY'
           import subprocess, sys
-          subprocess.run(sys.argv[1:], check=True, timeout=90)
+          subprocess.run([sys.argv[1], *sys.argv[2].split()], check=True, timeout=90)
           PY
