@@ -48,6 +48,13 @@ def apply(root: Path) -> None:
         raise ValueError("No UI call sites changed; upstream layout may have changed")
     shutil.copyfile(Path(__file__).with_name("Compatibility.swift"), shared / "Compatibility.swift")
     replace_required(
+        shared / "FileBrowserView.swift",
+        "        ToolbarSpacer(.fixed, placement: .topBarTrailing)",
+        "        if #available(iOS 26.0, *) {\n"
+        "            ToolbarSpacer(.fixed, placement: .topBarTrailing)\n"
+        "        }",
+    )
+    replace_required(
         shared / "FileBrowserBar.swift",
         "    func scrollEdgeEffectHidden() -> some View {\n"
         "        scrollEdgeEffectStyle(.none, for: .horizontal)\n"
