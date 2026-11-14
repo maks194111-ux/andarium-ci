@@ -52,7 +52,7 @@ int main() {
             const EGLint core[] = {EGL_CONTEXT_MAJOR_VERSION, v[0], EGL_CONTEXT_MINOR_VERSION, v[1],
                 EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
             const EGLint legacy[] = {EGL_CONTEXT_MAJOR_VERSION, v[0], EGL_CONTEXT_MINOR_VERSION, v[1], EGL_NONE};
-            EGLContext lower = eglCreateContext(display, config, EGL_NO_CONTEXT, v[0] > 3 || v[1] >= 2 && v[0] == 3 ? core : legacy);
+            EGLContext lower = eglCreateContext(display, config, EGL_NO_CONTEXT, (v[0] > 3 || (v[0] == 3 && v[1] >= 2)) ? core : legacy);
             if (lower == EGL_NO_CONTEXT) continue;
             std::fprintf(stderr, "DIAGNOSTIC: highest desktop OpenGL offered is %d.%d, 4.6 required\n", v[0], v[1]);
             if (eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, lower)) {
