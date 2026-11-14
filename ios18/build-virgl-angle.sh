@@ -61,7 +61,7 @@ $MESON install -C "$WORK/virgl-build"
   -I "$SOURCES/virglrenderer/src/gallium/include" -I "$ANGLE/include" \
   "$HERE/virgl-angle-probe.c" \
   "$STAGE/lib/libvirglrenderer.a" "$STAGE/lib/libepoxy.a" \
-  -L "$ANGLE/macos" -lEGL -lGLESv2 -Wl,-rpath,"$ANGLE/macos" \
+  -Wl,-rpath,"$ANGLE/macos" \
   -framework Metal -framework Foundation -framework IOSurface -framework CoreFoundation \
   -lc++ -o "$WORK/virgl-angle-probe"
 
