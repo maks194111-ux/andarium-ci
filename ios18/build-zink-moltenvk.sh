@@ -33,9 +33,13 @@ export MACOSX_DEPLOYMENT_TARGET=15.0
 export CC="$(xcrun --find clang)" CXX="$(xcrun --find clang++)"
 export OBJC="$CC" OBJCXX="$CXX"
 
+xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only \
+  -I "$SOURCES/mesa/include" "$HERE/egl-probe.cpp"
+
 python3 -m mesonbuild.mesonmain setup "$WORK/zink-build" "$SOURCES/mesa" \
   --prefix "$PREFIX" --libdir lib --buildtype release --wrap-mode=nodownload \
   -Dplatforms=macos -Dvulkan-drivers= -Dgallium-drivers=zink \
+  -Dmoltenvk-dir="$WORK/MoltenVK" \
   -Dzink-vulkan-library-file="$DRIVER/dynamic/dylib/macOS/libMoltenVK.dylib" \
   -Dopengl=true -Degl=enabled -Dglx=disabled -Dgles1=disabled -Dgles2=disabled \
   -Dzstd=disabled -Dllvm=disabled -Dspirv-tools=disabled -Ddebug=true
