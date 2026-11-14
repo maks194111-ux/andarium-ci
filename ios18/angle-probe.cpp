@@ -24,9 +24,12 @@ template <class T> static T sym(void* lib, const char* name) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) fail("usage: angle-probe <ANGLE dynamic library exporting EGL and GLES>");
-    void* gles = dlopen(argv[1], RTLD_NOW | RTLD_GLOBAL);
-    if (!gles) fail(dlerror());
+    void* gles = nullptr;
+    for (int i = 1; i < argc && !gles; ++i) {
+        gles = dlopen(argv[i], RTLD_NOW | RTLD_GLOBAL);
+        std::printf("%s: %s\n", argv[i], gles ? "loaded" : "absent");
+    }
+    if (!gles) fail("no candidate ANGLE library could be loaded");
     void* egl = gles;
 
     auto getPlatformDisplay = sym<EGLDisplay (*)(unsigned, void*, const EGLAttrib*)>(egl, "eglGetPlatformDisplay");
