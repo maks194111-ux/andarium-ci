@@ -28,6 +28,7 @@ cd "$UPSTREAM"
 stage "retarget build system (macOS product, ANGLE host GL)"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
+python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 if [ "$HOST_MAJOR" -lt 27 ]; then
   echo "host is macOS $HOST_MAJOR: lowering the macOS floor from 27.0 for this test"
   FLOOR="$HOST_MAJOR.0"
@@ -113,6 +114,9 @@ otool -L "$EMULATOR" | grep -E 'EGL|GLES' || true
 
 stage "boot Android headless on ANGLE"
 CPUS=$(sysctl -n hw.ncpu)
+# The refresh-rate experiment: offer the guest a 120 Hz mode and read back what
+# Android reports.
+export UML_GUEST_REFRESH_HZ="${GUEST_REFRESH_HZ:-120}"
 set +e
 python3 tools/boot_android.py --instance "$WORK/instance" --emulator "$EMULATOR" \
   --display offscreen --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
@@ -131,7 +135,7 @@ done
 if adb -s "$SERIAL" shell true 2>/dev/null; then
   adb -s "$SERIAL" shell 'getprop | grep -E "boot_completed|opengles|hardware.egl|hardware.vulkan|hwui|bootanim|ro.build.version.release"' > "$OUT/props.txt" 2>&1
   adb -s "$SERIAL" shell dumpsys SurfaceFlinger > "$OUT/surfaceflinger.txt" 2>&1
-  grep -E "GLES|EGL|Vulkan|refresh|fps" "$OUT/surfaceflinger.txt" | head -30
+  grep -E "GLES|EGL|Vulkan|refresh|fps|vsyncPeriod|Hz" "$OUT/surfaceflinger.txt" | head -40
   adb -s "$SERIAL" logcat -d > "$OUT/logcat.txt" 2>&1
   grep -ciE "FATAL EXCEPTION|Fatal signal" "$OUT/logcat.txt"
   grep -E "FATAL EXCEPTION|Fatal signal|EGL_BAD|eglCreate|GL error|virgl|mesa" "$OUT/logcat.txt" | cut -c1-220 | sort | uniq -c | sort -rn | head -40
