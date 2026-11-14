@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 compatibility compilation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-ios18
+  cancel-in-progress: true
+jobs:
+  compatibility:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - name: Get approved build scripts and pinned upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          git init upstream
+          git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
+          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream checkout --detach FETCH_HEAD
+          python3 ci/ios18/apply.py upstream
+      - name: Test model code with lowered platform requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path upstream/GuestHost/Core --jobs 2
+          swift test --package-path upstream/Andarium/AndariumCore --jobs 2
+      - name: Compile actual app UI for iOS 18 deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project upstream/Andarium/Andarium.xcodeproj \
+            -scheme AndariumPreview -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/ios18-ui" \
+            IPHONEOS_DEPLOYMENT_TARGET=18.0 CODE_SIGNING_ALLOWED=NO build
+          {
+            echo "## Verified scope"
+            echo "Actual upstream UI compiled with iOS 18 deployment target."
+            echo "Preview target uses mock runtime data: no Android boot or IPA."
+            echo "Metal 4 guest startup restriction remains enabled."
+          } >> "$GITHUB_STEP_SUMMARY"
