@@ -18,7 +18,7 @@ mkdir -p "$WORK/tools"
 printf '#!/bin/sh\nexec python3 -m mesonbuild.mesonmain "$@"\n' > "$WORK/tools/meson"
 chmod +x "$WORK/tools/meson"
 export PATH="$WORK/tools:$PATH"
-for tool in autoconf automake libtool pkg-config ninja cmake gptfdisk; do
+for tool in autoconf automake libtool pkg-config ninja cmake gptfdisk groff; do
   HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"
 done
 command -v adb >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask android-platform-tools
