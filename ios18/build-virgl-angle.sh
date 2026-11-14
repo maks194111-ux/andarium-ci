@@ -72,3 +72,58 @@ result = subprocess.run([sys.argv[1]], timeout=120)
 print("probe exit status", result.returncode, flush=True)
 sys.exit(result.returncode != 0)
 PY
+
+# --- Andarium's own renderer classes on ANGLE ---------------------------------
+ENGINE="$WORK/engine"
+rm -rf "$ENGINE"; mkdir -p "$ENGINE"
+cp -R "$UPSTREAM/darwin" "$ENGINE/"
+python3 "$HERE/angle_provider.py" "$ENGINE"
+GPU="$ENGINE/darwin/device/gpu"
+# ANGLE's dylibs carry build-relative names; give copies loadable ones.
+RUNTIME="$WORK/angle-runtime"; rm -rf "$RUNTIME"; mkdir -p "$RUNTIME"
+cp "$ANGLE/macos/libEGL.dylib" "$ANGLE/macos/libGLESv2.dylib" "$RUNTIME/"
+install_name_tool -id @rpath/libEGL.dylib "$RUNTIME/libEGL.dylib"
+install_name_tool -id @rpath/libGLESv2.dylib "$RUNTIME/libGLESv2.dylib"
+otool -L "$RUNTIME/libEGL.dylib"
+engine_sources="host_gl_provider.cpp virgl_renderer.cpp device_memory_pool.cpp freed_memory_watch.cpp context_idle_tracker.cpp"
+engine_flags=(-std=c++23 -O1 -DUML_GPU_SOFTWARE_RENDERER=1 -DVIRGL_RENDERER_UNSTABLE_APIS
+  -I "$GPU" -I "$ENGINE/darwin/platform" -I "$ENGINE/darwin/platform/apple" -I "$ENGINE/darwin/include"
+  -I "$ENGINE/darwin/device/vhost_user" -I "$UPSTREAM/kernel/common/gpu"
+  -I "$STAGE/include" -I "$STAGE/include/virgl" -I "$SOURCES/virglrenderer/src"
+  -I "$SOURCES/virglrenderer/src/gallium/include" -I "$ANGLE/include")
+
+build_engine() { # <out-dir> <extra compiler flags...>
+  local out="$1"; shift
+  mkdir -p "$out"
+  for source in $engine_sources; do
+    "$CXX" "$@" "${engine_flags[@]}" -c "$GPU/$source" -o "$out/${source%.cpp}.o"
+  done
+  "$CXX" "$@" "${engine_flags[@]}" -x objective-c++ -fobjc-arc -c \
+    "$ENGINE/darwin/platform/apple/host_gpu_memory.mm" -o "$out/host_gpu_memory.o"
+  "$CC" "$@" -O1 -c "$GPU/angle_interop_unsupported.c" -o "$out/angle_interop_unsupported.o"
+}
+
+build_engine "$WORK/engine-macos"
+"$CXX" "${engine_flags[@]}" -c "$HERE/engine-renderer-angle-test.cpp" -o "$WORK/engine-macos/test.o"
+"$CXX" "$WORK"/engine-macos/*.o "$STAGE/lib/libvirglrenderer.a" "$STAGE/lib/libepoxy.a" \
+  "$RUNTIME/libEGL.dylib" -Wl,-rpath,"$RUNTIME" \
+  -framework Metal -framework Foundation -framework QuartzCore -framework CoreFoundation -framework IOSurface \
+  -o "$WORK/engine-renderer-angle-test"
+python3 - "$WORK/engine-renderer-angle-test" <<'PY'
+import subprocess
+import sys
+result = subprocess.run([sys.argv[1]], timeout=120)
+print("engine test exit status", result.returncode, flush=True)
+sys.exit(result.returncode != 0)
+PY
+
+# The same engine sources must also compile for the real phone target.
+(
+  unset MACOSX_DEPLOYMENT_TARGET
+  export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+  build_engine "$WORK/engine-ios" -target arm64-apple-ios18.0 -isysroot "$SDKROOT"
+  for object in "$WORK"/engine-ios/*.o; do
+    echo "$(basename "$object"): $(xcrun vtool -show-build "$object" | grep -E 'platform|minos' | tr -s ' \n' ' ')"
+  done
+)
+echo "Engine renderer sources compiled for arm64 iOS 18.0 (compile only; not linked into an app)."
