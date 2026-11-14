@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <span>
 #include <vector>
 
@@ -44,7 +45,11 @@ int main()
         std::memcpy(&caps, capset.data.data(), sizeof(caps));
         std::printf("guest GLSL level %u, render targets %u\n", caps.glsl_level, caps.max_render_targets);
     }
-    std::printf("Venus (guest Vulkan) capset bytes: %zu\n", renderer.capset(4).data.size());
+    try {
+        std::printf("Venus (guest Vulkan) capset bytes: %zu\n", renderer.capset(4).data.size());
+    } catch (const std::exception& error) {
+        std::printf("Venus (guest Vulkan) capset: none (%s)\n", error.what());
+    }
 
     const std::uint32_t context = 1, resource = 1, surface = 1;
     require(renderer.createContext(context, 0, "probe"), "context creation");
