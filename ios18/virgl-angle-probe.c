@@ -62,8 +62,9 @@ static uint32_t float_bits(float value) { uint32_t bits; memcpy(&bits, &value, 4
 int main(void)
 {
    setvbuf(stdout, NULL, _IONBF, 0);
-   const EGLAttrib display_attributes[] = {0x3203 /* PLATFORM_ANGLE_TYPE */, 0x3489 /* METAL */, EGL_NONE};
-   display = eglGetPlatformDisplay(0x3202 /* EGL_PLATFORM_ANGLE_ANGLE */, NULL, display_attributes);
+   // libepoxy can only resolve EGL 1.0 entry points before a display exists.
+   // This ANGLE build has Metal as its only backend, so the default display is Metal.
+   display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
    if (display == EGL_NO_DISPLAY) fail("ANGLE Metal display");
    EGLint major, minor;
    if (!eglInitialize(display, &major, &minor)) fail("initialize ANGLE");
