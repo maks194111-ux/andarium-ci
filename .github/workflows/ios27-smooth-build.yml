@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+name: iOS 27 build with host refresh rate (upstream graphics stack)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-ios27-smooth
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 300
+    steps:
+      - name: Fetch public sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          git init upstream
+          git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
+          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream checkout --detach FETCH_HEAD
+      - name: Install isolated build-only Python tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --target "$RUNNER_TEMP/python-tools" \
+            meson==1.12.1 Mako==1.4.3 packaging==26.3 PyYAML==6.0.3 ply==3.11
+          echo "PYTHONPATH=$RUNNER_TEMP/python-tools" >> "$GITHUB_ENV"
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/ios27/build-ios27-smooth.sh upstream "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: andarium-ios27-smooth-app-without-system-image
+          path: |
+            ${{ runner.temp }}/Andarium-ios27-smooth-no-image.zip
+          retention-days: 30
+          compression-level: 0
