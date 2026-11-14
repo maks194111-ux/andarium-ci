@@ -78,6 +78,7 @@ meson compile -C "$BUILD/virgl" -j 3
 meson install -C "$BUILD/virgl"
 install -m 0644 "$SOURCES/virglrenderer/src/virgl_hw.h" "$PREFIX/include/virgl/virgl_hw.h"
 rm -rf "$PREFIX/lib/pkgconfig" "$PREFIX/bin" "$PREFIX/include/GL/zink_interop_public.h"
+cp -R "$ANGLE/include/EGL" "$ANGLE/include/KHR" "$PREFIX/include/"
 cp -R "$ANGLE/ios/libEGL.framework" "$ANGLE/ios/libGLESv2.framework" "$PREFIX/Frameworks/"
 for framework in libEGL libGLESv2; do
   otool -D "$PREFIX/Frameworks/$framework.framework/$framework" | tail -1
@@ -102,5 +103,5 @@ cmake --preset kernarium-ios-device-android
 stage "build the device Android runtime"
 # Upstream's architecture audit forbids the Virgl-only mode on a device; this
 # experiment is exactly that, so only the runtime target is built.
-cmake --build .build/kernarium-runtime-ios-device-android-4k --target KernariumRuntime -j 4
+cmake --build .build/kernarium-runtime-ios-device-android-4k --target KernariumRuntime -j 4 -- -k 0
 find .build -maxdepth 4 -name '*.framework' | head
