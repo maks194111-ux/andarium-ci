@@ -49,3 +49,9 @@ jobs:
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"
           bash ci/ios18/build-engine-ios18.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/angle-package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-ios18
+          path: ${{ runner.temp }}/engine-ios18.tar.gz
+          retention-days: 30
+          compression-level: 0
