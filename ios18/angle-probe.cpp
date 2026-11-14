@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Ask ANGLE's Metal backend (no Metal 4, no Vulkan) what OpenGL ES it offers.
-// Uses a prebuilt ANGLE; declares the few entry points itself, so it needs no headers.
+// Uses the ANGLE build Apple ships inside WebKit (probe only, never linked into the app); declares the few entry points itself, so it needs no headers.
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,17 +15,19 @@ using EGLint = int; using EGLAttrib = intptr_t;
 static void fail(const char* what) { std::fprintf(stderr, "FAIL: %s\n", what); std::exit(1); }
 template <class T> static T sym(void* lib, const char* name) {
     void* p = dlsym(lib, name);
+    if (!p) {  // some ANGLE builds export EGL_Foo / GL_Foo instead of eglFoo / glFoo
+        std::string alternate = name[0] == 'e' ? "EGL_" + std::string(name + 3) : "GL_" + std::string(name + 2);
+        p = dlsym(lib, alternate.c_str());
+    }
     if (!p) fail(name);
     return reinterpret_cast<T>(p);
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) fail("usage: angle-probe <directory with libEGL.dylib and libGLESv2.dylib>");
-    const std::string dir = argv[1];
-    void* gles = dlopen((dir + "/libGLESv2.dylib").c_str(), RTLD_NOW | RTLD_GLOBAL);
+    if (argc != 2) fail("usage: angle-probe <ANGLE dynamic library exporting EGL and GLES>");
+    void* gles = dlopen(argv[1], RTLD_NOW | RTLD_GLOBAL);
     if (!gles) fail(dlerror());
-    void* egl = dlopen((dir + "/libEGL.dylib").c_str(), RTLD_NOW | RTLD_GLOBAL);
-    if (!egl) fail(dlerror());
+    void* egl = gles;
 
     auto getPlatformDisplay = sym<EGLDisplay (*)(unsigned, void*, const EGLAttrib*)>(egl, "eglGetPlatformDisplay");
     auto initialize = sym<unsigned (*)(EGLDisplay, EGLint*, EGLint*)>(egl, "eglInitialize");
