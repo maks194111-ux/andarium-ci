@@ -1,7 +1,7 @@
 # Andarium: первый запуск на бесплатном macOS runner
 
 Это отдельный минимальный репозиторий для проверки среды GitHub Actions.
-Он **не собирает IPA**, не запускает Android и не подтверждает iOS 18 или FPS.
+Он собирает неподписанное приложение под iOS 18 без образа Android (эксперимент), не запускает Android и не подтверждает работу на iOS 18 или FPS.
 Исходники движка скачиваются из публичного upstream на закреплённом коммите.
 
 ## Запуск
@@ -95,3 +95,7 @@ ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` 
 ## Andarium's renderer on ANGLE: result
 
 `ios18/angle_provider.py` retargets the engine's own host GL provider (`darwin/device/gpu/host_gl_provider.cpp`) from Mesa to ANGLE's Metal backend, and the engine is compiled in upstream's Virgl-only mode (the one its iOS Simulator product uses: no guest Vulkan, scanouts read back). In `ios18-virgl-angle.yml` the engine's `VirglRenderer` class then creates a guest GL context on macOS, executes a command stream and returns the scanout pixels through the display's readback call. The same engine sources compile for arm64 iOS 18.0 (compile only). Not done: the full engine and app build, booting Android on this path, zero-copy presentation, anything on a phone.
+
+## iOS 18 engine and app build (experiment)
+
+`ios18-engine-build.yml` builds the whole device runtime for arm64 iOS 18.0 on the ANGLE path (libepoxy, virglrenderer, network stack, the upstream release kernel bundle, `KernariumRuntime`) and packages it with ANGLE's frameworks. `ios18-app-build.yml` builds the Andarium app against that package with minimum iOS 18.0 and ad-hoc signs it with upstream's entitlements. The artifact carries no Android system image. Both workflows succeed; the result has never run on a device, so Android boot, graphics (OpenGL ES 3.0, no Vulkan, readback presentation), frame rate and stability are unverified.
