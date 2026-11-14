@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 app build (ANGLE path, unsigned)
+on:
+  workflow_dispatch:
+    inputs:
+      engine_run:
+        description: Run id of the engine build that holds the engine-ios18 artifact
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: andarium-app-build
+  cancel-in-progress: true
+jobs:
+  app:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - name: Fetch public sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          git init upstream
+          git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
+          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream checkout --detach FETCH_HEAD
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-ios18
+          run-id: ${{ inputs.engine_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/engine-download
+      - name: Build the unsigned app for iOS 18
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/ios18/build-app-ios18.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/engine-download/engine-ios18.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: andarium-ios18-app-without-system-image
+          path: ${{ runner.temp }}/Andarium-ios18-no-image.zip
+          retention-days: 30
+          compression-level: 0
