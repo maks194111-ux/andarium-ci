@@ -45,4 +45,45 @@ edit("Andarium/Andarium/Live/AppEntry.swift", [
     ("return MTLCreateSystemDefaultDevice()?.supportsFamily(.metal4) ?? false",
      "return MTLCreateSystemDefaultDevice() != nil"),
 ])
+edit("Andarium/Andarium/Live/GuestLayer.swift", [
+    (".containerCornerOffset(SceneCoverage.cornerOffsetEdges(coversScreen: coversScreen), sizeToFit: true)",
+     ".andariumCornerOffset(SceneCoverage.cornerOffsetEdges(coversScreen: coversScreen))"),
+])
+layer = root / "Andarium/Andarium/Live/GuestLayer.swift"
+layer.write_text(layer.read_text() + """
+// iOS 18 compatibility: the window-control corner offset exists from iOS 26;
+// before it there are no overlaid window controls to move away from.
+private extension View {
+    @ViewBuilder func andariumCornerOffset(_ edges: Edge.Set) -> some View {
+        if #available(iOS 26.0, *) {
+            containerCornerOffset(edges, sizeToFit: true)
+        } else {
+            self
+        }
+    }
+}
+""")
+edit("GuestHost/Sources/GuestDisplay.swift", [
+    ("""                self.perform(self.resizeHold.interactiveResizeChanged(
+                    scene.effectiveGeometry.isInteractivelyResizing
+                ))""",
+     """                var resizing = false
+                if #available(iOS 26.0, *) {
+                    resizing = scene.effectiveGeometry.isInteractivelyResizing
+                }
+                self.perform(self.resizeHold.interactiveResizeChanged(resizing))"""),
+])
+edit("GuestHost/Sources/SceneCoverage.swift", [
+    ("""        covers(
+            sceneSize: scene.effectiveGeometry.coordinateSpace.bounds.size,
+            screenSize: scene.screen.bounds.size
+        )""",
+     """        let sceneSize: CGSize
+        if #available(iOS 26.0, *) {
+            sceneSize = scene.effectiveGeometry.coordinateSpace.bounds.size
+        } else {
+            sceneSize = scene.coordinateSpace.bounds.size
+        }
+        return covers(sceneSize: sceneSize, screenSize: scene.screen.bounds.size)"""),
+])
 print("app project uses the ANGLE runtime; start guard asks for a Metal device")
