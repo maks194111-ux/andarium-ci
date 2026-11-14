@@ -18,6 +18,9 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
+# "ios" (default) or "macos": the macOS product is used to boot-test the same
+# ANGLE path on a Mac; it keeps its own deployment floor.
+platform = sys.argv[2] if len(sys.argv) > 2 else "ios"
 
 
 def edit(relative: str, replacements: list[tuple[str, str, int]]) -> None:
@@ -31,24 +34,25 @@ def edit(relative: str, replacements: list[tuple[str, str, int]]) -> None:
     path.write_text(text)
 
 
-# 1. Deployment floor.
-edit("cmake/toolchains/Apple.cmake",
-     [("set(_uml_apple_deployment_target 27.0)", "set(_uml_apple_deployment_target 18.0)", 1)])
-for script in ("dependencies/build-ios-network.sh", "dependencies/ios-static-xcframework.sh"):
-    edit(script, [("DEPLOYMENT_TARGET=27.0", "DEPLOYMENT_TARGET=18.0", 1)])
+if platform == "ios":
+    # 1. Deployment floor.
+    edit("cmake/toolchains/Apple.cmake",
+         [("set(_uml_apple_deployment_target 27.0)", "set(_uml_apple_deployment_target 18.0)", 1)])
+    for script in ("dependencies/build-ios-network.sh", "dependencies/ios-static-xcframework.sh"):
+        edit(script, [("DEPLOYMENT_TARGET=27.0", "DEPLOYMENT_TARGET=18.0", 1)])
 
-# The prefix verifiers and platform contracts name the same floor.
-floor_files = sorted((root / "dependencies/cmake").glob("*.cmake")) + \
-    sorted((root / "dependencies/platforms").glob("ios-*.tsv"))
-changed = 0
-for floor_file in floor_files:
-    floor_text = floor_file.read_text()
-    if "27.0" in floor_text:
-        floor_file.write_text(floor_text.replace("27.0", "18.0"))
-        changed += 1
-if changed == 0:
-    raise SystemExit("no deployment floor found in the prefix verifiers")
-print(f"deployment floor rewritten in {changed} verifier and contract files")
+    # The prefix verifiers and platform contracts name the same floor.
+    floor_files = sorted((root / "dependencies/cmake").glob("*.cmake")) + \
+        sorted((root / "dependencies/platforms").glob("ios-*.tsv"))
+    changed = 0
+    for floor_file in floor_files:
+        floor_text = floor_file.read_text()
+        if "27.0" in floor_text:
+            floor_file.write_text(floor_text.replace("27.0", "18.0"))
+            changed += 1
+    if changed == 0:
+        raise SystemExit("no deployment floor found in the prefix verifiers")
+    print(f"deployment floor rewritten in {changed} verifier and contract files")
 
 # 2 and 3. GPU product.
 path = root / "dependencies/cmake/AppleGpuDependencies.cmake"
@@ -63,8 +67,9 @@ def replace(old: str, new: str, count: int = 1) -> None:
     text = text.replace(old, new)
 
 
-replace('''        "${PROJECT_SOURCE_DIR}/.build/dependencies/apple-gpu-vulkan-experiment/ios-device-arm64")
-''', '''        "${PROJECT_SOURCE_DIR}/.build/dependencies/apple-gpu-vulkan-experiment/ios-device-arm64")
+prefix_name = "ios-device-arm64" if platform == "ios" else "macos-arm64"
+replace(f'''        "${{PROJECT_SOURCE_DIR}}/.build/dependencies/apple-gpu-vulkan-experiment/{prefix_name}")
+''', f'''        "${{PROJECT_SOURCE_DIR}}/.build/dependencies/apple-gpu-vulkan-experiment/{prefix_name}")
     # iOS 18 experiment: ANGLE on Metal serves Virgl; no Vulkan driver.
     set(_uml_apple_gpu_software TRUE)
 ''')
@@ -95,4 +100,4 @@ if gpu_text.count(old) != 1:
     raise SystemExit("gpu CMakeLists: renderer sources not found")
 gpu.write_text(gpu_text.replace(
     old, "    angle_interop_unsupported.c\n    host_gl_provider.cpp\n    virgl_renderer.cpp)"))
-print("build system retargeted: iOS 18.0, ANGLE host GL, Virgl only")
+print(f"build system retargeted for {platform}: ANGLE host GL, Virgl only")
