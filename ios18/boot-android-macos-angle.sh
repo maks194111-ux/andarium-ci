@@ -83,6 +83,17 @@ for name in libEGL libGLESv2; do
   mkdir -p "$PREFIX/Frameworks/$name.framework"
   cp "$ANGLE/macos/$name.dylib" "$PREFIX/Frameworks/$name.framework/$name"
   install_name_tool -id "@rpath/$name.framework/$name" "$PREFIX/Frameworks/$name.framework/$name"
+  cat > "$PREFIX/Frameworks/$name.framework/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>$name</string>
+<key>CFBundleIdentifier</key><string>org.chromium.angle.$name</string>
+<key>CFBundlePackageType</key><string>FMWK</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+</dict></plist>
+PLIST
 done
 [ -z "$OLD_GLES" ] || install_name_tool -change "$OLD_GLES" @rpath/libGLESv2.framework/libGLESv2 \
   "$PREFIX/Frameworks/libEGL.framework/libEGL"
