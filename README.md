@@ -79,3 +79,7 @@ FAIL: initialize Zink EGL (EGL error 0x3001)
 заново проверять создание контекста, шейдеры и рендеринг. Отдельно сохраняется
 задача переноса собственных callback-функций учёта памяти KosmicKrisp,
 используемых Virgl/Venus. Текущая конфигурация не предназначена для упаковки IPA.
+
+## Zink on MoltenVK: result
+
+`ios18/zink_null_descriptor_fallback.py` gives Zink real placeholder resources where MoltenVK lacks `nullDescriptor`. With it, the patched Mesa builds and EGL initialises, but the driver offers at most desktop OpenGL 2.1 (the probe requires 4.6 and fails on purpose). MoltenVK has no transform feedback or geometry shaders, which Mesa needs for OpenGL 3.0 and later. This route cannot serve the Android guest.
