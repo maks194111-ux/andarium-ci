@@ -48,6 +48,11 @@ static int make_current(void *cookie, int scanout, virgl_renderer_gl_context con
 }
 
 static void write_fence(void *cookie, uint32_t fence) { (void)cookie; (void)fence; }
+static void write_context_fence(void *cookie, uint32_t context, uint32_t ring, uint64_t fence)
+{
+   (void)cookie; (void)context; (void)ring; (void)fence;
+}
+static void *get_egl_display(void *cookie) { (void)cookie; return display; }
 
 // Mesa's interop export, which ANGLE does not have: report it unsupported.
 int MesaGLInteropEGLExportObject(void *d, void *c, void *in, void *out);
@@ -75,13 +80,15 @@ int main(void)
    if (!eglChooseConfig(display, config_attributes, &config, 1, &count) || count != 1) fail("choose config");
 
    static struct virgl_renderer_callbacks callbacks = {
-      .version = 1,
+      .version = VIRGL_RENDERER_CALLBACKS_VERSION,
       .write_fence = write_fence,
       .create_gl_context = create_context,
       .destroy_gl_context = destroy_context,
       .make_current = make_current,
+      .write_context_fence = write_context_fence,
+      .get_egl_display = get_egl_display,
    };
-   int result = virgl_renderer_init(NULL, 0, &callbacks);
+   int result = virgl_renderer_init(&callbacks, 0, &callbacks);
    if (result) { fprintf(stderr, "FAIL: virgl_renderer_init returned %d\n", result); return 1; }
    printf("virglrenderer initialised on: %s / %s\n", (const char *)glGetString(GL_VERSION),
           (const char *)glGetString(GL_RENDERER));
@@ -144,7 +151,7 @@ int main(void)
       if (abs(pixel[i] - expected[i]) > 1) { fprintf(stderr, "FAIL: pixel mismatch\n"); return 1; }
 
    virgl_renderer_context_destroy(context);
-   virgl_renderer_cleanup(NULL);
+   virgl_renderer_cleanup(&callbacks);
    puts("PASS: Virgl command stream rendered through ANGLE on Metal and read back");
    puts("Host-side test only; no Android guest, no iPhone.");
    return 0;
