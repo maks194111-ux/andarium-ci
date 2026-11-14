@@ -35,6 +35,7 @@ stage "network and compression dependencies"
 bash dependencies/prepare.sh --product ios-network
 bash dependencies/build-ios-network.sh --platform ios
 bash dependencies/prepare.sh --product ios-compression
+bash dependencies/prepare.sh --product ios-storage
 bash dependencies/build-ios-zstd.sh
 
 stage "accepted Android kernel bundle from the upstream release"
