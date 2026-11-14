@@ -40,7 +40,7 @@ import re
 pattern = re.compile(r'[ \t]*if \(!has_video_encoder\)\n[ \t]*options\.forwarded\.emplace_back\("--video-encoder"\);\n')
 if len(pattern.findall(text)) != 1:
     raise SystemExit("video encoder default not found")
-path.write_text(pattern.sub("", text))
+path.write_text(pattern.sub("(void)has_video_encoder;\\n", text))
 PY2
 if [ "$HOST_MAJOR" -lt 27 ]; then
   echo "host is macOS $HOST_MAJOR: lowering the macOS floor from 27.0 for this test"
