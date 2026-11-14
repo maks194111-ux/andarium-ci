@@ -91,3 +91,7 @@ ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` 
 ## Virgl on ANGLE: result
 
 `ios18-virgl-angle.yml` builds Andarium's patched virglrenderer and libepoxy against that ANGLE build (Venus off) and drives it the way the engine does: external EGL display, contexts through callbacks. On macOS the renderer initialises, creates a guest context, and a Virgl command stream clears a render target that reads back correctly. The capability set it would hand the guest is GLSL level 130, i.e. about OpenGL 3.0 / OpenGL ES 3.0, with 8 render targets and 16384 textures. This is a host-side test only: the engine's own GPU device code is not yet built against ANGLE, no Android guest has booted on it, and the guest has no Vulkan on this path.
+
+## Andarium's renderer on ANGLE: result
+
+`ios18/angle_provider.py` retargets the engine's own host GL provider (`darwin/device/gpu/host_gl_provider.cpp`) from Mesa to ANGLE's Metal backend, and the engine is compiled in upstream's Virgl-only mode (the one its iOS Simulator product uses: no guest Vulkan, scanouts read back). In `ios18-virgl-angle.yml` the engine's `VirglRenderer` class then creates a guest GL context on macOS, executes a command stream and returns the scanout pixels through the display's readback call. The same engine sources compile for arm64 iOS 18.0 (compile only). Not done: the full engine and app build, booting Android on this path, zero-copy presentation, anything on a phone.
