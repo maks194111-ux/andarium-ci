@@ -24,6 +24,7 @@ stage "retarget build system"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM"
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/engine_api_patch.py" "$UPSTREAM"
+python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
