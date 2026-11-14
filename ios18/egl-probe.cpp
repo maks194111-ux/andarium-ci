@@ -23,7 +23,7 @@ template <class T> static T proc(const char* name) {
 
 int main() {
     EGLDisplay display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,
-                                               EGL_DEFAULT_DISPLAY, nullptr);
+                                               nullptr, nullptr);
     require(display != EGL_NO_DISPLAY, "surfaceless display");
     EGLint major{}, minor{};
     require(eglInitialize(display, &major, &minor), "initialize Zink EGL");
@@ -37,8 +37,9 @@ int main() {
     EGLint count{};
     require(eglChooseConfig(display, configAttributes, &config, 1, &count) && count == 1,
             "choose framebuffer format");
-    // Match the existing host provider contract. Do not silently request a
-    // lower GL version, software rasterizer, or override reported features.
+    // Require parity with the documented GL 4.6 provider, although Virgl can
+    // negotiate lower versions. This experiment must not silently downgrade,
+    // use a software rasterizer, or override reported features.
     const EGLint contextAttributes[] = {
         EGL_CONTEXT_MAJOR_VERSION, 4, EGL_CONTEXT_MINOR_VERSION, 6,
         EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE
