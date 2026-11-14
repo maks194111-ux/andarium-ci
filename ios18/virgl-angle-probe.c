@@ -14,7 +14,6 @@
 
 static EGLDisplay display;
 static EGLConfig config;
-static EGLContext first;
 
 static void fail(const char *what)
 {
@@ -27,11 +26,11 @@ static virgl_renderer_gl_context create_context(void *cookie, int scanout, struc
    (void)cookie; (void)scanout;
    const EGLint attributes[] = {EGL_CONTEXT_MAJOR_VERSION, param->major_ver,
                                 EGL_CONTEXT_MINOR_VERSION, param->minor_ver, EGL_NONE};
-   EGLContext context = eglCreateContext(display, config, param->shared ? first : EGL_NO_CONTEXT, attributes);
+   EGLContext context = eglCreateContext(display, config, param->shared ? eglGetCurrentContext() : EGL_NO_CONTEXT, attributes);
    printf("context request %d.%d shared=%d: %s\n", param->major_ver, param->minor_ver,
           param->shared, context != EGL_NO_CONTEXT ? "created" : "refused");
-   if (context != EGL_NO_CONTEXT && !first)
-      first = context;
+   if (context == EGL_NO_CONTEXT)
+      printf("  EGL error 0x%x\n", eglGetError());
    return context == EGL_NO_CONTEXT ? NULL : (virgl_renderer_gl_context)context;
 }
 
