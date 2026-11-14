@@ -29,18 +29,18 @@ stage "retarget build system (macOS product, ANGLE host GL)"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
+python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 # The CI Mac is a virtual machine without a hardware video encoder, and the
 # launcher treats the missing encoder as fatal. The test boots without that
 # device; it is unrelated to the graphics path under test.
 python3 - <<'PY2'
 from pathlib import Path
-path = Path("darwin/app/macos/android17_main.cpp")
+path = Path("darwin/app/macos/main.cpp")
 text = path.read_text()
-import re
-pattern = re.compile(r'[ \t]*if \(!has_video_encoder\)\n[ \t]*options\.forwarded\.emplace_back\("--video-encoder"\);\n')
-if len(pattern.findall(text)) != 1:
-    raise SystemExit("video encoder default not found")
-path.write_text(pattern.sub("(void)has_video_encoder;\\n", text))
+old = "if (prepared_.video_encoder && !information_only_ &&"
+if text.count(old) != 1:
+    raise SystemExit("video encoder start not found")
+path.write_text(text.replace(old, "if (false && prepared_.video_encoder && !information_only_ &&"))
 PY2
 if [ "$HOST_MAJOR" -lt 27 ]; then
   echo "host is macOS $HOST_MAJOR: lowering the macOS floor from 27.0 for this test"
@@ -147,6 +147,8 @@ CPUS=$(sysctl -n hw.ncpu)
 # The refresh-rate experiment: offer the guest a 120 Hz mode and read back what
 # Android reports.
 export UML_GUEST_REFRESH_HZ="${GUEST_REFRESH_HZ:-120}"
+# What the host shows, for comparison with the guest's own screenshot.
+export UML_ANGLE_SCANOUT_DUMP="$OUT/host-frame.bgra"
 set +e
 python3 tools/boot_android.py --instance "$WORK/instance" --emulator "$EMULATOR" \
   --display offscreen --audio-output null --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
@@ -177,6 +179,9 @@ if adb -s "$SERIAL" shell true 2>/dev/null; then
     sleep 30
     for n in 1 2 3 4 5 6; do adb -s "$SERIAL" shell input swipe 360 1000 360 300 300; sleep 1; done
     adb -s "$SERIAL" exec-out screencap -p > "$OUT/settings.png"
+    touch "$OUT/host-frame.bgra.request"
+    adb -s "$SERIAL" shell input swipe 360 600 360 700 200; sleep 3
+    ls -la "$OUT"
     adb -s "$SERIAL" shell dumpsys gfxinfo com.android.settings > "$OUT/gfxinfo-settings.txt" 2>&1
     grep -E "Total frames|Janky frames|percentile|Number" "$OUT/gfxinfo-settings.txt" | head -20
     adb -s "$SERIAL" shell dumpsys SurfaceFlinger --timestats -dump > "$OUT/timestats.txt" 2>&1
