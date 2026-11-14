@@ -24,6 +24,7 @@ template <class T> static T sym(void* lib, const char* name) {
 }
 
 int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IONBF, 0);
     void* gles = nullptr;
     for (int i = 1; i < argc && !gles; ++i) {
         gles = dlopen(argv[i], RTLD_NOW | RTLD_GLOBAL);
