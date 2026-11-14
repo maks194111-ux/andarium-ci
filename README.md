@@ -86,4 +86,8 @@ FAIL: initialize Zink EGL (EGL error 0x3001)
 
 ## ANGLE on Metal: result
 
-ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` builds it from pinned sources: the macOS build renders and reads back a frame, and the same sources link for the arm64 iOS device with minimum iOS 18.0. It offers OpenGL ES 3.0 (with transform feedback), not 3.1/3.2, has no `GL_EXT_buffer_storage`, and gives the guest no Vulkan. It is not yet joined to virglrenderer or the Android guest, and has not run on a phone.
+ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` builds it from pinned sources: the macOS build renders and reads back a frame, and the same sources link for the arm64 iOS device with minimum iOS 18.0. It offers OpenGL ES 3.0 (with transform feedback), not 3.1/3.2, has no `GL_EXT_buffer_storage`, and gives the guest no Vulkan. It has not run on a phone.
+
+## Virgl on ANGLE: result
+
+`ios18-virgl-angle.yml` builds Andarium's patched virglrenderer and libepoxy against that ANGLE build (Venus off) and drives it the way the engine does: external EGL display, contexts through callbacks. On macOS the renderer initialises, creates a guest context, and a Virgl command stream clears a render target that reads back correctly. The capability set it would hand the guest is GLSL level 130, i.e. about OpenGL 3.0 / OpenGL ES 3.0, with 8 render targets and 16384 textures. This is a host-side test only: the engine's own GPU device code is not yet built against ANGLE, no Android guest has booted on it, and the guest has no Vulkan on this path.
