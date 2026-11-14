@@ -151,7 +151,7 @@ export UML_GUEST_REFRESH_HZ="${GUEST_REFRESH_HZ:-120}"
 export UML_ANGLE_SCANOUT_DUMP="$OUT/host-frame.bgra"
 set +e
 python3 tools/boot_android.py --instance "$WORK/instance" --emulator "$EMULATOR" \
-  --display offscreen --audio-output null --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
+  --display offscreen --dpi 320 --audio-output null --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
   > "$OUT/launcher.log" 2>&1 &
 LAUNCHER=$!
 SERIAL=127.0.0.1:5555
@@ -164,33 +164,49 @@ for i in $(seq 1 330); do
   if [ "$state" = 1 ]; then booted=1; echo "boot_completed after about $((i*10)) s"; break; fi
   [ $((i % 12)) -eq 0 ] && { echo "waiting: $((i*10)) s"; tail -2 "$OUT/launcher.log" | cut -c1-200; }
 done
-if adb -s "$SERIAL" shell true 2>/dev/null; then
-  adb -s "$SERIAL" shell 'getprop | grep -E "boot_completed|opengles|hardware.egl|hardware.vulkan|hwui|bootanim|ro.build.version.release"' > "$OUT/props.txt" 2>&1
-  adb -s "$SERIAL" shell dumpsys SurfaceFlinger > "$OUT/surfaceflinger.txt" 2>&1
-  grep -E "GLES|EGL|Vulkan|refresh|fps|vsyncPeriod|Hz" "$OUT/surfaceflinger.txt" | head -40
-  adb -s "$SERIAL" logcat -d > "$OUT/logcat.txt" 2>&1
-  grep -ciE "FATAL EXCEPTION|Fatal signal" "$OUT/logcat.txt"
-  grep -E "FATAL EXCEPTION|Fatal signal|EGL_BAD|eglCreate|GL error|virgl|mesa" "$OUT/logcat.txt" | cut -c1-220 | sort | uniq -c | sort -rn | head -40
+# The launcher drops its own ADB session when it has seen the boot; reconnect
+# before every query.
+guest() { adb connect "$SERIAL" >/dev/null 2>&1; adb -s "$SERIAL" "$@"; }
+if guest shell true 2>/dev/null; then
+  guest shell 'getprop | grep -E "boot_completed|opengles|hardware.egl|hardware.vulkan|hwui|ro.build.version.release"' > "$OUT/props.txt" 2>&1
+  guest shell dumpsys SurfaceFlinger > "$OUT/surfaceflinger.txt" 2>&1
+  grep -E "GLES:|activeMode|renderRate|720x1280" "$OUT/surfaceflinger.txt" | head -12
+  guest shell dumpsys display 2>/dev/null | grep -iE "refreshRate|supportedModes|mActiveModeId|fps" | head -12 | cut -c1-400
   if [ "$booted" = 1 ]; then
-    sleep 60
-    adb -s "$SERIAL" exec-out screencap -p > "$OUT/screen.png"
-    adb -s "$SERIAL" shell input keyevent KEYCODE_HOME
-    adb -s "$SERIAL" shell am start -a android.settings.SETTINGS >/dev/null 2>&1
+    sleep 45
+    guest shell input keyevent KEYCODE_WAKEUP
+    guest shell am start -a android.settings.SETTINGS >/dev/null 2>&1
     sleep 30
-    for n in 1 2 3 4 5 6; do adb -s "$SERIAL" shell input swipe 360 1000 360 300 300; sleep 1; done
-    adb -s "$SERIAL" exec-out screencap -p > "$OUT/settings.png"
-    touch "$OUT/host-frame.bgra.request"
-    adb -s "$SERIAL" shell input swipe 360 600 360 700 200; sleep 3
-    ls -la "$OUT"
-    adb -s "$SERIAL" shell dumpsys gfxinfo com.android.settings > "$OUT/gfxinfo-settings.txt" 2>&1
+    guest shell dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1
+    for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      guest shell input swipe 360 1000 360 300 250
+      guest shell input swipe 360 300 360 1000 250
+    done
+    guest shell dumpsys gfxinfo com.android.settings > "$OUT/gfxinfo-settings.txt" 2>&1
     grep -E "Total frames|Janky frames|percentile|Number" "$OUT/gfxinfo-settings.txt" | head -20
-    adb -s "$SERIAL" shell dumpsys SurfaceFlinger --timestats -dump > "$OUT/timestats.txt" 2>&1
+    guest shell dumpsys SurfaceFlinger --latency-clear >/dev/null 2>&1
+    grep -E "Native display|ANGLE scanout|frames|fps|FPS" "$OUT/launcher.log" | tail -12 | cut -c1-240
+    # Same moment from both sides: what the guest drew and what the host shows.
+    sleep 5
+    guest exec-out screencap -p > "$OUT/guest-frame.png"
+    touch "$OUT/host-frame.bgra.request"
+    guest shell input swipe 360 640 360 660 100
+    sleep 4
+    guest shell input swipe 360 660 360 640 100
+    sleep 4
+    guest exec-out screencap -p > "$OUT/guest-frame-after.png"
+    ls -la "$OUT"
   fi
+  guest logcat -d > "$OUT/logcat.txt" 2>&1
+  echo "fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$OUT/logcat.txt")"
+  grep -E "FATAL EXCEPTION|Fatal signal|EGL_BAD|GL error" "$OUT/logcat.txt" | cut -c1-220 | sort | uniq -c | sort -rn | head -20
 fi
+kill -0 "$LAUNCHER" 2>/dev/null && echo "emulator still running at the end of the test" || echo "EMULATOR EXITED DURING THE TEST"
+grep -n "Darwin host fault" "$OUT/launcher.log" | head -5
 kill -INT "$LAUNCHER" 2>/dev/null; sleep 20; kill -9 "$LAUNCHER" 2>/dev/null
 pkill -9 -f uml-darwin-android17 2>/dev/null
 set -e
-tail -60 "$OUT/launcher.log" | cut -c1-240
+tail -15 "$OUT/launcher.log" | cut -c1-240
 grep -iE "renderer=|Virgl|ANGLE|GPU|capset" "$OUT/launcher.log" | sort | uniq -c | sort -rn | head -30 | cut -c1-240
 if [ "$booted" = 1 ]; then
   echo "RESULT: Android reached boot_completed on the ANGLE path (macOS host)."
