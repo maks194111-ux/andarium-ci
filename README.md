@@ -83,3 +83,7 @@ FAIL: initialize Zink EGL (EGL error 0x3001)
 ## Zink on MoltenVK: result
 
 `ios18/zink_null_descriptor_fallback.py` gives Zink real placeholder resources where MoltenVK lacks `nullDescriptor`. With it, the patched Mesa builds and EGL initialises, but the driver offers at most desktop OpenGL 2.1 (the probe requires 4.6 and fails on purpose). MoltenVK has no transform feedback or geometry shaders, which Mesa needs for OpenGL 3.0 and later. This route cannot serve the Android guest.
+
+## ANGLE on Metal: result
+
+ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` builds it from pinned sources: the macOS build renders and reads back a frame, and the same sources link for the arm64 iOS device with minimum iOS 18.0. It offers OpenGL ES 3.0 (with transform feedback), not 3.1/3.2, has no `GL_EXT_buffer_storage`, and gives the guest no Vulkan. It is not yet joined to virglrenderer or the Android guest, and has not run on a phone.
