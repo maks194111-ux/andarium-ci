@@ -9,7 +9,7 @@
 #include <dlfcn.h>
 #include <string>
 
-using EGLDisplay = void*; using EGLConfig = void*; using EGLContext = void*; using EGLSurface = void*;
+using EGLDisplay = void*; using EGLConfig = void*; using EGLContext = void*;
 using EGLint = int; using EGLAttrib = intptr_t;
 
 static void fail(const char* what) { std::fprintf(stderr, "FAIL: %s\n", what); std::exit(1); }
@@ -37,8 +37,7 @@ int main(int argc, char** argv) {
     auto initialize = sym<unsigned (*)(EGLDisplay, EGLint*, EGLint*)>(egl, "eglInitialize");
     auto chooseConfig = sym<unsigned (*)(EGLDisplay, const EGLint*, EGLConfig*, EGLint, EGLint*)>(egl, "eglChooseConfig");
     auto createContext = sym<EGLContext (*)(EGLDisplay, EGLConfig, EGLContext, const EGLint*)>(egl, "eglCreateContext");
-    auto createPbuffer = sym<EGLSurface (*)(EGLDisplay, EGLConfig, const EGLint*)>(egl, "eglCreatePbufferSurface");
-    auto makeCurrent = sym<unsigned (*)(EGLDisplay, EGLSurface, EGLSurface, EGLContext)>(egl, "eglMakeCurrent");
+    auto makeCurrent = sym<unsigned (*)(EGLDisplay, void*, void*, EGLContext)>(egl, "eglMakeCurrent");
     auto queryString = sym<const char* (*)(EGLDisplay, EGLint)>(egl, "eglQueryString");
     auto getString = sym<const unsigned char* (*)(unsigned)>(gles, "glGetString");
     auto clearColor = sym<void (*)(float, float, float, float)>(gles, "glClearColor");
@@ -55,8 +54,8 @@ int main(int argc, char** argv) {
     if (!initialize(display, &major, &minor)) fail("initialize ANGLE on Metal");
     std::printf("EGL %d.%d\nEGL extensions: %s\n", major, minor, queryString(display, 0x3055));
 
-    // pbuffer, ES3 renderable, RGBA8
-    const EGLint configAttributes[] = {0x3033, 0x0001, 0x3040, 0x0040,
+    // ES3 renderable, RGBA8
+    const EGLint configAttributes[] = {0x3040, 0x0040,
         0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8, 0x3038};
     EGLConfig config{}; EGLint count{};
     if (!chooseConfig(display, configAttributes, &config, 1, &count) || count != 1) fail("choose ES3 config");
@@ -68,10 +67,19 @@ int main(int argc, char** argv) {
         if (context) { std::printf("Highest OpenGL ES context: %d.%d\n", v[0], v[1]); break; }
     }
     if (!context) fail("create OpenGL ES 3.x context");
-    const EGLint surfaceAttributes[] = {0x3057, 16, 0x3056, 16, 0x3038};
-    EGLSurface surface = createPbuffer(display, config, surfaceAttributes);
-    if (!surface) fail("create offscreen surface");
-    if (!makeCurrent(display, surface, surface, context)) fail("make current");
+    // Surfaceless, as WebKit drives this backend; the frame goes to a renderbuffer.
+    std::puts("stage: make current");
+    if (!makeCurrent(display, nullptr, nullptr, context)) fail("make current without a surface");
+    std::puts("stage: framebuffer");
+    unsigned framebuffer{}, renderbuffer{};
+    sym<void (*)(int, unsigned*)>(gles, "glGenFramebuffers")(1, &framebuffer);
+    sym<void (*)(unsigned, unsigned)>(gles, "glBindFramebuffer")(0x8D40, framebuffer);
+    sym<void (*)(int, unsigned*)>(gles, "glGenRenderbuffers")(1, &renderbuffer);
+    sym<void (*)(unsigned, unsigned)>(gles, "glBindRenderbuffer")(0x8D41, renderbuffer);
+    sym<void (*)(unsigned, unsigned, int, int)>(gles, "glRenderbufferStorage")(0x8D41, 0x8058, 16, 16);
+    sym<void (*)(unsigned, unsigned, unsigned, unsigned)>(gles, "glFramebufferRenderbuffer")(0x8D40, 0x8CE0, 0x8D41, renderbuffer);
+    if (sym<unsigned (*)(unsigned)>(gles, "glCheckFramebufferStatus")(0x8D40) != 0x8CD5) fail("framebuffer incomplete");
+    std::puts("stage: strings");
 
     const char* renderer = reinterpret_cast<const char*>(getString(0x1F01));
     const char* extensions = reinterpret_cast<const char*>(getString(0x1F03));
