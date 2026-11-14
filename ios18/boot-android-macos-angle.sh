@@ -36,10 +36,11 @@ python3 - <<'PY2'
 from pathlib import Path
 path = Path("darwin/app/macos/android17_main.cpp")
 text = path.read_text()
-old = 'if (!has_video_encoder)\noptions.forwarded.emplace_back("--video-encoder");\n'
-if text.count(old) != 1:
+import re
+pattern = re.compile(r'[ \t]*if \(!has_video_encoder\)\n[ \t]*options\.forwarded\.emplace_back\("--video-encoder"\);\n')
+if len(pattern.findall(text)) != 1:
     raise SystemExit("video encoder default not found")
-path.write_text(text.replace(old, ""))
+path.write_text(pattern.sub("", text))
 PY2
 if [ "$HOST_MAJOR" -lt 27 ]; then
   echo "host is macOS $HOST_MAJOR: lowering the macOS floor from 27.0 for this test"
