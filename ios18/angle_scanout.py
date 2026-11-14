@@ -65,7 +65,6 @@ namespace uml::gpu {
 #include <cstring>
 #include <string>
 #include <unistd.h>
-#include <vector>
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 
@@ -172,28 +171,58 @@ bool buildRing(State& s, std::uint32_t width, std::uint32_t height) noexcept
 }
 
 // A measurement aid, off unless UML_ANGLE_SCANOUT_DUMP names a file: when
-// "<file>.request" exists, the copy just made is read back and written there
-// as raw BGRA rows, bottom row first, after a "width height" text line.
-void maybeDump(std::uint32_t width, std::uint32_t height) noexcept
+// "<file>.request" exists, the Metal texture the display is about to sample is
+// copied out through Metal and written there as raw BGRA rows, first texture
+// row first, after a "width height" text line.
+void maybeDump(State& s, id<MTLTexture> texture) noexcept
 {
-    static const char* path = std::getenv("UML_ANGLE_SCANOUT_DUMP");
-    if (path == nullptr)
+    static const char* const configured = std::getenv("UML_ANGLE_SCANOUT_DUMP");
+    static const std::string path = configured != nullptr ? configured : "";
+    if (path.empty())
         return;
-    const std::string request = std::string(path) + ".request";
+    const std::string request = path + ".request";
     if (access(request.c_str(), F_OK) != 0)
         return;
-    std::vector<unsigned char> pixels(
-        static_cast<std::size_t>(width) * height * 4U);
-    glReadPixels(
-        0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-        GL_BGRA_EXT, GL_UNSIGNED_BYTE, pixels.data());
-    const bool read = glGetError() == GL_NO_ERROR;
-    if (FILE* out = read ? std::fopen(path, "wb") : nullptr) {
-        std::fprintf(out, "%u %u\n", width, height);
-        std::fwrite(pixels.data(), 1, pixels.size(), out);
-        std::fclose(out);
-    }
     unlink(request.c_str());
+    @autoreleasepool {
+        const NSUInteger width = texture.width;
+        const NSUInteger height = texture.height;
+        const NSUInteger rowBytes = width * 4U;
+        id<MTLBuffer> buffer = [s.device
+            newBufferWithLength:rowBytes * height
+                        options:MTLResourceStorageModeShared];
+        id<MTLCommandQueue> queue = [s.device newCommandQueue];
+        id<MTLCommandBuffer> commands = [queue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [commands blitCommandEncoder];
+        if (buffer == nil || blit == nil)
+            return;
+        [blit copyFromTexture:texture
+                  sourceSlice:0
+                  sourceLevel:0
+                 sourceOrigin:MTLOriginMake(0, 0, 0)
+                   sourceSize:MTLSizeMake(width, height, 1)
+                     toBuffer:buffer
+            destinationOffset:0
+       destinationBytesPerRow:rowBytes
+     destinationBytesPerImage:rowBytes * height];
+        [blit endEncoding];
+        [commands commit];
+        [commands waitUntilCompleted];
+        if (commands.status != MTLCommandBufferStatusCompleted ||
+            buffer.contents == nullptr) {
+            std::fputs("ANGLE scanout: frame dump failed\n", stderr);
+            return;
+        }
+        if (FILE* out = std::fopen(path.c_str(), "wb")) {
+            std::fprintf(
+                out, "%lu %lu\n",
+                static_cast<unsigned long>(width),
+                static_cast<unsigned long>(height));
+            std::fwrite(buffer.contents, 1, rowBytes * height, out);
+            std::fclose(out);
+            std::fputs("ANGLE scanout: frame dump written\n", stderr);
+        }
+    }
 }
 
 } // namespace
@@ -263,10 +292,6 @@ void* angleScanoutCopy(
             0, 0, static_cast<GLint>(width), static_cast<GLint>(height),
             GL_COLOR_BUFFER_BIT, GL_NEAREST);
         copied = glGetError() == GL_NO_ERROR;
-        if (copied) {
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffers[1]);
-            maybeDump(width, height);
-        }
         if (scissor)
             glEnable(GL_SCISSOR_TEST);
     }
@@ -285,6 +310,7 @@ void* angleScanoutCopy(
     // The display samples the texture from its own Metal queue; the copy has
     // to be complete before that, and Metal orders nothing across queues.
     glFinish();
+    maybeDump(s, slot.metal);
     s.next = (s.next + 1) % kRingSize;
     if (++s.frames == 1)
         std::fputs("ANGLE scanout: first frame copied on the GPU\n", stderr);
