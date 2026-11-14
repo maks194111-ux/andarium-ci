@@ -36,6 +36,8 @@ def apply(root: Path) -> None:
             (".buttonStyle(.glassProminent)", ".andariumGlassButtonStyle(prominent: true)"),
             (".buttonStyle(.glass)", ".andariumGlassButtonStyle()"),
             (".safeAreaBar(", ".andariumSafeAreaBar("),
+            (".navigationSubtitle(", ".andariumNavigationSubtitle("),
+            (".labelIconToTitleSpacing(", ".andariumLabelSpacing("),
             ("private var glass: Glass {", "private var glass: AndariumGlass {"),
         ):
             updated = updated.replace(old, new)
@@ -45,6 +47,69 @@ def apply(root: Path) -> None:
     if changed == 0:
         raise ValueError("No UI call sites changed; upstream layout may have changed")
     shutil.copyfile(Path(__file__).with_name("Compatibility.swift"), shared / "Compatibility.swift")
+    replace_required(
+        shared / "FileBrowserBar.swift",
+        "    func scrollEdgeEffectHidden() -> some View {\n"
+        "        scrollEdgeEffectStyle(.none, for: .horizontal)\n"
+        "    }",
+        "    @ViewBuilder func scrollEdgeEffectHidden() -> some View {\n"
+        "        if #available(iOS 26.0, *) {\n"
+        "            scrollEdgeEffectStyle(.none, for: .horizontal)\n"
+        "        } else {\n"
+        "            self\n"
+        "        }\n"
+        "    }",
+    )
+    hosting = shared / "AndariumHostingController.swift"
+    replace_required(
+        hosting, "private var lockRequested = false",
+        "private var lockRequested = false\n"
+        "    private var legacyLockedOrientation: UIInterfaceOrientation?",
+    )
+    replace_required(
+        hosting,
+        "        UIDevice.current.userInterfaceIdiom == .phone ? .portrait : .all",
+        "        if UIDevice.current.userInterfaceIdiom == .phone { return .portrait }\n"
+        "        if #available(iOS 26.0, *) { return .all }\n"
+        "        guard lockRequested, let orientation = legacyLockedOrientation else { return .all }\n"
+        "        switch orientation {\n"
+        "        case .portrait: return .portrait\n"
+        "        case .portraitUpsideDown: return .portraitUpsideDown\n"
+        "        case .landscapeLeft: return .landscapeLeft\n"
+        "        case .landscapeRight: return .landscapeRight\n"
+        "        default: return .all\n"
+        "        }",
+    )
+    for declaration in (
+        "override var prefersInterfaceOrientationLocked:",
+        "override var childForInterfaceOrientationLock:",
+    ):
+        replace_required(hosting, declaration, "@available(iOS 26.0, *)\n    " + declaration)
+    replace_required(
+        hosting, "let size = scene.effectiveGeometry.coordinateSpace.bounds.size",
+        "let size: CGSize\n"
+        "            let interfaceLocked: Bool\n"
+        "            if #available(iOS 26.0, *) {\n"
+        "                size = scene.effectiveGeometry.coordinateSpace.bounds.size\n"
+        "                interfaceLocked = scene.effectiveGeometry.isInterfaceOrientationLocked\n"
+        "            } else {\n"
+        "                size = scene.coordinateSpace.bounds.size\n"
+        "                interfaceLocked = lockRequested && legacyLockedOrientation == scene.interfaceOrientation\n"
+        "            }",
+    )
+    replace_required(
+        hosting, "interfaceLocked: scene.effectiveGeometry.isInterfaceOrientationLocked)",
+        "interfaceLocked: interfaceLocked)",
+    )
+    replace_required(
+        hosting, "                setNeedsUpdateOfPrefersInterfaceOrientationLocked()",
+        "                if #available(iOS 26.0, *) {\n"
+        "                    setNeedsUpdateOfPrefersInterfaceOrientationLocked()\n"
+        "                } else {\n"
+        "                    legacyLockedOrientation = lockRequested ? scene.interfaceOrientation : nil\n"
+        "                    setNeedsUpdateOfSupportedInterfaceOrientations()\n"
+        "                }",
+    )
     # Do not pretend that iOS 18 has Metal 4. Gate the enum reference but keep
     # the original device capability restriction until a backend is ported.
     replace_required(
