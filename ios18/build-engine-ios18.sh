@@ -14,6 +14,10 @@ mkdir -p "$WORK/tools"
 printf '#!/bin/sh\nexec python3 -m mesonbuild.mesonmain "$@"\n' > "$WORK/tools/meson"
 chmod +x "$WORK/tools/meson"
 export PATH="$WORK/tools:$PATH"
+# Build-only host tools upstream's dependency scripts expect.
+for tool in autoconf automake libtool pkg-config ninja cmake; do
+  command -v "${tool/libtool/glibtoolize}" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"
+done
 
 cd "$UPSTREAM"
 stage "retarget build system"
