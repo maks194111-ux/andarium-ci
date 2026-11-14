@@ -37,6 +37,14 @@ plutil -p "$APP/Info.plist" | grep -E 'MinimumOSVersion|CFBundleIdentifier|CFBun
 xcrun vtool -show-build "$APP/Andarium" | grep -E 'platform|minos'
 # The entitlements the app must be signed with, kept beside it for the signer.
 cp Andarium/Config/Andarium.entitlements "$WORK/Andarium.entitlements"
+# Ad-hoc signature that carries the entitlements, as upstream's released IPA
+# does, so a sideloading tool can keep them when it signs for the owner.
+/usr/libexec/PlistBuddy -c "Add :get-task-allow bool true" "$WORK/Andarium.entitlements"
+for framework in "$APP"/Frameworks/*.framework; do
+  codesign --force --sign - "$framework"
+done
+codesign --force --sign - --entitlements "$WORK/Andarium.entitlements" "$APP"
+codesign -d --entitlements - "$APP" 2>&1 | grep -E 'key|true' || true
 rm -rf "$WORK/Payload"; mkdir "$WORK/Payload"
 cp -R "$APP" "$WORK/Payload/"
 (cd "$WORK" && zip -qry Andarium-ios18-no-image.zip Payload Andarium.entitlements)
