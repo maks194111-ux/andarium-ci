@@ -15,14 +15,28 @@ static void check(VkResult result, const char* operation) {
 }
 
 int main() {
+    uint32_t instanceExtensionCount = 0;
+    check(vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr),
+          "enumerate instance extensions");
+    std::vector<VkExtensionProperties> instanceProperties(instanceExtensionCount);
+    check(vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, instanceProperties.data()),
+          "read instance extensions");
+    bool hasPortabilityEnumeration = false;
+    for (const auto& extension : instanceProperties)
+        hasPortabilityEnumeration |= !std::strcmp(extension.extensionName,
+                                                  VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    // This test links the ICD directly, not the Vulkan loader. Enumeration
+    // is a loader extension and must not be requested from an ICD lacking it.
+    std::printf("Portability enumeration extension: %s\n",
+                hasPortabilityEnumeration ? "enabled" : "absent; direct ICD enumeration");
     const char* instanceExtensions[] = {VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME};
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.pApplicationName = "Andarium compatibility probe";
     application.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo create{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     create.pApplicationInfo = &application;
-    create.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-    create.enabledExtensionCount = 1;
+    create.flags = hasPortabilityEnumeration ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
+    create.enabledExtensionCount = hasPortabilityEnumeration ? 1 : 0;
     create.ppEnabledExtensionNames = instanceExtensions;
     VkInstance instance{};
     check(vkCreateInstance(&create, nullptr, &instance), "create instance");
