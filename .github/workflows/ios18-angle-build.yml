@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 ANGLE Metal build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: andarium-angle-build
+  cancel-in-progress: true
+jobs:
+  angle:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 150
+    env:
+      ANGLE_COMMIT: 47d8f0e238b79b3031a8f431648bf94d1459c03f
+      DEPOT_TOOLS_COMMIT: ec77017fb3e090ff02bffb9c6980ebcdd3006ddc
+      DEPOT_TOOLS_UPDATE: "0"
+    steps:
+      - name: Fetch probe, build tools and pinned ANGLE sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          git init depot_tools
+          git -C depot_tools fetch --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools "$DEPOT_TOOLS_COMMIT"
+          git -C depot_tools checkout --detach FETCH_HEAD
+          export PATH="$PWD/depot_tools:$PATH"
+          mkdir angle-root && cd angle-root
+          cat > .gclient <<GCLIENT
+          solutions = [{
+            "name": "angle",
+            "url": "https://chromium.googlesource.com/angle/angle.git@$ANGLE_COMMIT",
+            "deps_file": "DEPS",
+            "managed": False,
+            "custom_vars": {"checkout_angle_internal": False, "checkout_angle_mesa": False},
+          }]
+          target_os = ["mac", "ios"]
+          GCLIENT
+          sed -i '' 's/^          //' .gclient
+          gclient sync --no-history --shallow --nohooks -j 6
+          gclient runhooks
+          du -sh angle
+      - name: Build ANGLE for macOS (Metal only) and render with it
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/depot_tools:$PATH"
+          cd angle-root/angle
+          common='is_debug=false is_component_build=false symbol_level=0 angle_build_tests=false angle_enable_metal=true angle_enable_gl=false angle_enable_vulkan=false angle_enable_swiftshader=false angle_enable_null=false angle_enable_wgpu=false angle_enable_cl=false target_cpu="arm64"'
+          gn gen out/mac --args="$common"
+          autoninja -C out/mac libEGL libGLESv2
+          ls -la out/mac/*.dylib
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror "$GITHUB_WORKSPACE/ci/ios18/angle-probe.cpp" -o "$RUNNER_TEMP/angle-probe"
+          "$RUNNER_TEMP/angle-probe" "$PWD/out/mac/libGLESv2.dylib"
+      - name: Build ANGLE for the iOS 18 device
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$PWD/depot_tools:$PATH"
+          cd angle-root/angle
+          common='is_debug=false is_component_build=false symbol_level=0 angle_build_tests=false angle_enable_metal=true angle_enable_gl=false angle_enable_vulkan=false angle_enable_swiftshader=false angle_enable_null=false angle_enable_wgpu=false angle_enable_cl=false target_cpu="arm64"'
+          gn gen out/ios --args="$common target_os=\"ios\" target_environment=\"device\" ios_deployment_target=\"18.0\" ios_enable_code_signing=false"
+          autoninja -C out/ios libEGL libGLESv2
+          find out/ios -maxdepth 2 \( -name 'libGLESv2*' -o -name 'libEGL*' \) -print
+          binary=$(find out/ios -maxdepth 2 -type f -name libGLESv2 | head -1)
+          [ -n "$binary" ] || binary=$(find out/ios -maxdepth 1 -type f -name 'libGLESv2*' | head -1)
+          xcrun vtool -show-build "$binary"
+          lipo -info "$binary"
+          {
+            echo "ANGLE Metal built for macOS (rendered a frame) and linked for the arm64 iOS 18 device."
+            echo "Not run on a phone; not yet joined to the Android graphics bridge."
+          } >> "$GITHUB_STEP_SUMMARY"
