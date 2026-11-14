@@ -29,6 +29,18 @@ stage "retarget build system (macOS product, ANGLE host GL)"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
+# The CI Mac is a virtual machine without a hardware video encoder, and the
+# launcher treats the missing encoder as fatal. The test boots without that
+# device; it is unrelated to the graphics path under test.
+python3 - <<'PY2'
+from pathlib import Path
+path = Path("darwin/app/macos/android17_main.cpp")
+text = path.read_text()
+old = 'if (!has_video_encoder)\noptions.forwarded.emplace_back("--video-encoder");\n'
+if text.count(old) != 1:
+    raise SystemExit("video encoder default not found")
+path.write_text(text.replace(old, ""))
+PY2
 if [ "$HOST_MAJOR" -lt 27 ]; then
   echo "host is macOS $HOST_MAJOR: lowering the macOS floor from 27.0 for this test"
   FLOOR="$HOST_MAJOR.0"
@@ -136,7 +148,7 @@ CPUS=$(sysctl -n hw.ncpu)
 export UML_GUEST_REFRESH_HZ="${GUEST_REFRESH_HZ:-120}"
 set +e
 python3 tools/boot_android.py --instance "$WORK/instance" --emulator "$EMULATOR" \
-  --display offscreen --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
+  --display offscreen --audio-output null --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
   > "$OUT/launcher.log" 2>&1 &
 LAUNCHER=$!
 SERIAL=127.0.0.1:5555
