@@ -52,7 +52,7 @@ int main()
     }
 
     const std::uint32_t context = 1, resource = 1, surface = 1;
-    require(renderer.createContext(context, 0, "probe"), "context creation");
+    require(renderer.createContext(context, 2 /* Virgl2 capset, as a guest GL context names it */, "probe"), "context creation");
     require(renderer.createResource3d({
         .resourceId = resource, .target = 2, .format = VIRGL_FORMAT_B8G8R8A8_UNORM,
         .bind = VIRGL_BIND_RENDER_TARGET, .width = 64, .height = 64, .depth = 1, .arraySize = 1,
