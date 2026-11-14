@@ -343,6 +343,15 @@ edit("virgl_renderer.cpp", [
         information.base.height);
     if (nativeHandle == nullptr)
         return EINVAL;
+    static std::atomic_bool rowOrderReported {};
+    if (!rowOrderReported.exchange(true, std::memory_order_relaxed)) {
+        std::fprintf(
+            stderr,
+            "ANGLE scanout: resource flags 0x%x, shown %s\\n",
+            static_cast<unsigned>(information.base.flags),
+            (information.base.flags & VIRGL_RESOURCE_Y_0_TOP) != 0
+                ? "bottom row first" : "top row first");
+    }
     texture = NativeTexture {
         .texture = nativeHandle,
 """, 1),
