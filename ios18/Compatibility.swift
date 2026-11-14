@@ -32,6 +32,33 @@ struct AndariumGlass {
 
 extension View {
     @ViewBuilder
+    func andariumLabelSpacing(_ spacing: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            self.labelIconToTitleSpacing(spacing)
+        } else {
+            self.labelStyle(AndariumSpacedLabelStyle(spacing: spacing))
+        }
+    }
+
+    @ViewBuilder
+    func andariumNavigationSubtitle(_ subtitle: String) -> some View {
+        if #available(iOS 26.0, *) {
+            self.navigationSubtitle(subtitle)
+        } else {
+            self.safeAreaInset(edge: .top, spacing: 0) {
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(.bar)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     func andariumGlassEffect<S: Shape>(_ glass: AndariumGlass, in shape: S) -> some View {
         if #available(iOS 26.0, *) {
             self.glassEffect(glass.native, in: shape)
@@ -67,6 +94,16 @@ extension View {
             self.safeAreaBar(edge: edge, content: content)
         } else {
             self.safeAreaInset(edge: edge, spacing: 0, content: content)
+        }
+    }
+}
+
+private struct AndariumSpacedLabelStyle: LabelStyle {
+    let spacing: CGFloat
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: spacing) {
+            configuration.icon
+            configuration.title
         }
     }
 }
