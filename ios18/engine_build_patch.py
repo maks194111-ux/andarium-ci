@@ -37,6 +37,19 @@ edit("cmake/toolchains/Apple.cmake",
 for script in ("dependencies/build-ios-network.sh", "dependencies/ios-static-xcframework.sh"):
     edit(script, [("DEPLOYMENT_TARGET=27.0", "DEPLOYMENT_TARGET=18.0", 1)])
 
+# The prefix verifiers and platform contracts name the same floor.
+floor_files = sorted((root / "dependencies/cmake").glob("*.cmake")) + \
+    sorted((root / "dependencies/platforms").glob("ios-device-*.tsv"))
+changed = 0
+for floor_file in floor_files:
+    floor_text = floor_file.read_text()
+    if "27.0" in floor_text:
+        floor_file.write_text(floor_text.replace("27.0", "18.0"))
+        changed += 1
+if changed == 0:
+    raise SystemExit("no deployment floor found in the prefix verifiers")
+print(f"deployment floor rewritten in {changed} verifier and contract files")
+
 # 2 and 3. GPU product.
 path = root / "dependencies/cmake/AppleGpuDependencies.cmake"
 text = path.read_text()
