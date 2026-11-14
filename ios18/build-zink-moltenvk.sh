@@ -15,6 +15,9 @@ bash "$UPSTREAM/dependencies/prepare.sh" \
 bash "$UPSTREAM/dependencies/prepare.sh" \
   --product apple-gpu-vulkan-experiment --root "$SOURCES" --verify
 
+# MoltenVK has no robustness2.nullDescriptor; restore real placeholder resources.
+python3 "$HERE/zink_null_descriptor_fallback.py" "$SOURCES/mesa"
+
 # Keep generated grammar tools and packages separate from runtime libraries.
 mkdir -p "$WORK/empty-pkgconfig" "$WORK/grammar-tools"
 BISON=$(command -v bison)
