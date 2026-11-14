@@ -50,9 +50,13 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/depot_tools:$PATH"
           cd angle-root/angle
+          # Call the pinned tools the sources ship; the depot_tools wrappers want a self-update.
+          GN=$(find "$PWD/buildtools/mac" -type f -name gn | head -1)
+          NINJA=$(find "$PWD/third_party/ninja" -maxdepth 1 -type f -name ninja | head -1)
+          [ -x "$GN" ] && [ -x "$NINJA" ]
           common='is_debug=false is_component_build=false symbol_level=0 angle_build_tests=false angle_enable_metal=true angle_enable_gl=false angle_enable_vulkan=false angle_enable_swiftshader=false angle_enable_null=false angle_enable_wgpu=false angle_enable_cl=false target_cpu="arm64"'
-          gn gen out/mac --args="$common"
-          autoninja -C out/mac libEGL libGLESv2
+          "$GN" gen out/mac --args="$common"
+          "$NINJA" -j 4 -C out/mac libEGL libGLESv2
           ls -la out/mac/*.dylib
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror "$GITHUB_WORKSPACE/ci/ios18/angle-probe.cpp" -o "$RUNNER_TEMP/angle-probe"
           "$RUNNER_TEMP/angle-probe" "$PWD/out/mac/libGLESv2.dylib"
@@ -62,9 +66,13 @@ jobs:
           set -euo pipefail
           export PATH="$PWD/depot_tools:$PATH"
           cd angle-root/angle
+          # Call the pinned tools the sources ship; the depot_tools wrappers want a self-update.
+          GN=$(find "$PWD/buildtools/mac" -type f -name gn | head -1)
+          NINJA=$(find "$PWD/third_party/ninja" -maxdepth 1 -type f -name ninja | head -1)
+          [ -x "$GN" ] && [ -x "$NINJA" ]
           common='is_debug=false is_component_build=false symbol_level=0 angle_build_tests=false angle_enable_metal=true angle_enable_gl=false angle_enable_vulkan=false angle_enable_swiftshader=false angle_enable_null=false angle_enable_wgpu=false angle_enable_cl=false target_cpu="arm64"'
-          gn gen out/ios --args="$common target_os=\"ios\" target_environment=\"device\" ios_deployment_target=\"18.0\" ios_enable_code_signing=false"
-          autoninja -C out/ios libEGL libGLESv2
+          "$GN" gen out/ios --args="$common target_os=\"ios\" target_environment=\"device\" ios_deployment_target=\"18.0\" ios_enable_code_signing=false"
+          "$NINJA" -j 4 -C out/ios libEGL libGLESv2
           find out/ios -maxdepth 2 \( -name 'libGLESv2*' -o -name 'libEGL*' \) -print
           binary=$(find out/ios -maxdepth 2 -type f -name libGLESv2 | head -1)
           [ -n "$binary" ] || binary=$(find out/ios -maxdepth 1 -type f -name 'libGLESv2*' | head -1)
