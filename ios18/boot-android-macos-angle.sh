@@ -238,16 +238,34 @@ GUEST
     local split_seconds=$(( $(date +%s) - split_start ))
     guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-after.txt" 2>&1
     local split_frames=$(guest shell "dumpsys gfxinfo com.android.settings" | tr -d '\r' | awk '/Total frames rendered/ {print $4}')
-    guest root >/dev/null 2>&1; sleep 4
-    local render=$(guest shell 'pid=$(pidof com.android.settings); for task in /proc/$pid/task/*; do [ "$(cat $task/comm)" = RenderThread ] && echo ${task##*/}; done' | tr -d '\r' | head -1)
-    echo "render thread: $render; strace: $(guest shell 'command -v strace; id -u' | tr '\r\n' '  ')"
-    guest shell "timeout 14 strace -c -p $render -o /data/local/tmp/strace-count.txt >/dev/null 2>&1 &
-      sleep 1; for n in 1 2 3; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done; sleep 8"
-    guest shell "cat /data/local/tmp/strace-count.txt" > "$dir/strace-count.txt" 2>&1
-    guest shell "timeout 10 strace -T -p $render -o /data/local/tmp/strace-times.txt >/dev/null 2>&1 &
-      sleep 1; for n in 1 2; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done; sleep 6"
-    guest shell "cat /data/local/tmp/strace-times.txt" > "$dir/strace-times.txt" 2>&1
-    python3 "$HERE/split.py" "$name" "$dir/threads-before.txt" "$dir/threads-after.txt" "${split_frames:-0}" "$split_seconds" "$dir/strace-count.txt" "$dir/strace-times.txt" || true
+    python3 "$HERE/split.py" "$name baseline" "$dir/threads-before.txt" "$dir/threads-after.txt" "${split_frames:-0}" "$split_seconds" || true
+    # 4. The same scroll with settings of the guest's graphics driver that move
+    #    or remove processor work without changing what is drawn.
+    variant() {
+      local tag=$1; shift
+      local setting
+      for setting in "$@"; do guest shell "setprop ${setting%%=*} ${setting#*=}"; done
+      guest shell "am force-stop com.android.settings; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 8
+      guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 2
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null"
+      guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-$tag-before.txt" 2>&1
+      local began=$(date +%s)
+      guest shell "for n in 1 2 3 4 5 6; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+      local took=$(( $(date +%s) - began ))
+      guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-$tag-after.txt" 2>&1
+      local count=$(guest shell "dumpsys gfxinfo com.android.settings" | tr -d '\r' | awk '/Total frames rendered/ {print $4}')
+      guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-$tag.txt" 2>&1
+      guest exec-out screencap -p > "$dir/variant-$tag.png"
+      echo "--- variant $tag: $* ; threads of the app: $(guest shell 'for t in /proc/$(pidof com.android.settings)/task/*; do cat $t/comm; done' | tr -d '\r' | grep -ciE 'gl|mesa') with gl in the name"
+      python3 "$HERE/split.py" "$name $tag" "$dir/threads-$tag-before.txt" "$dir/threads-$tag-after.txt" "${count:-0}" "$took" || true
+      python3 "$HERE/framestats.py" "$name $tag" "$dir/framestats-$tag.txt" || true
+      for setting in "$@"; do guest shell "setprop ${setting%%=*} ''"; done
+    }
+    variant same
+    variant noerror debug.mesa.no.error=true mesa.no.error=true
+    variant glthread debug.mesa.glthread=true mesa.glthread=true
+    variant both debug.mesa.no.error=true debug.mesa.glthread=true mesa.no.error=true mesa.glthread=true
+    guest shell 'ls /vendor/lib64/egl /vendor/lib64/dri 2>/dev/null; getprop | grep -i mesa; strings /vendor/lib64/dri/*.so 2>/dev/null | grep -m3 -iE "^Mesa [0-9]|mesa [0-9]+\.[0-9]+\.[0-9]"' 2>&1 | head -30
     guest shell "top -b -n 1 -H -m 25 -o PID,TID,%CPU,CMD,NAME" > "$dir/guest-top.txt" 2>&1
     guest shell "getprop | grep -iE 'hwui|renderer|debug.sf|ro.surface_flinger|vsync|ro.hardware.egl|ro.opengles|zygote|dalvik.vm.usejit|dalvik.vm.dex2oat-filter|pm.dexopt'" > "$dir/guest-props.txt" 2>&1
     echo "--- $name: guest properties"; cut -c1-150 "$dir/guest-props.txt" | head -60
