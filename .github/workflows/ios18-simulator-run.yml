@@ -9,6 +9,9 @@ on:
       angle_sim_run:
         description: Run id of the ANGLE Simulator build
         required: true
+      memory_mib:
+        description: Guest RAM in MiB (empty for the app's own choice)
+        default: ""
       seconds:
         description: How long to watch the Android start
         default: "420"
@@ -45,7 +48,7 @@ jobs:
         shell: bash
         run: |
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
-          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim"
+          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim" "${{ inputs.memory_mib }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
