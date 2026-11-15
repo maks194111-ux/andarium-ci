@@ -60,15 +60,10 @@ done
 /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "$APP/Info.plist" || true
 BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
 for framework in "$APP"/Frameworks/*.framework; do codesign --force --sign - "$framework" || exit 1; done
-cat > "$WORK/sim.entitlements" <<ENT
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>application-identifier</key><string>SIMULATOR0.$BUNDLE</string>
-<key>keychain-access-groups</key><array><string>SIMULATOR0.$BUNDLE</string></array>
-</dict></plist>
-ENT
-codesign --force --sign - --entitlements "$WORK/sim.entitlements" "$APP" || exit 1
+# No entitlements: the Mac refuses an ad-hoc signature that carries identifier
+# entitlements ("Taskgated Invalid Signature"). The cost is that the Simulator
+# keychain refuses the adb key, so the app's adb features do not work here.
+codesign --force --sign - "$APP" || exit 1
 
 stage "iPhone 11 on iOS 18"
 xcrun simctl list runtimes
