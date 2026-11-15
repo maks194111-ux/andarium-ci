@@ -60,6 +60,7 @@ namespace uml::gpu {
 #import <Metal/Metal.h>
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -92,7 +93,49 @@ struct State {
     std::array<Slot, kRingSize> ring;
     std::size_t next {};
     std::uint64_t frames {};
+    // Measurement aid (UML_ANGLE_SCANOUT_STATS): one line per five seconds
+    // in which frames arrived.
+    bool stats {};
+    std::chrono::steady_clock::time_point windowStart {};
+    std::chrono::steady_clock::time_point lastFrame {};
+    std::uint32_t windowFrames {};
+    double windowCopyMs {};
+    double windowWorstCopyMs {};
+    double windowLongestGapMs {};
 };
+
+void account(State& s, std::chrono::steady_clock::time_point begin) noexcept
+{
+    using std::chrono::duration;
+    const auto now = std::chrono::steady_clock::now();
+    const double copyMs = duration<double, std::milli>(now - begin).count();
+    if (s.windowFrames == 0) {
+        s.windowStart = begin;
+        s.windowLongestGapMs = 0;
+    } else {
+        const double gap = duration<double, std::milli>(begin - s.lastFrame).count();
+        if (gap > s.windowLongestGapMs)
+            s.windowLongestGapMs = gap;
+    }
+    s.lastFrame = begin;
+    ++s.windowFrames;
+    s.windowCopyMs += copyMs;
+    if (copyMs > s.windowWorstCopyMs)
+        s.windowWorstCopyMs = copyMs;
+    const double elapsed = duration<double>(now - s.windowStart).count();
+    if (elapsed < 5.0)
+        return;
+    std::fprintf(
+        stderr,
+        "ANGLE scanout stats: %.1f s, %u frames (%.1f per second), copy %.2f ms "
+        "average, %.2f ms worst, longest gap %.0f ms\n",
+        elapsed, s.windowFrames, s.windowFrames / elapsed,
+        s.windowCopyMs / s.windowFrames, s.windowWorstCopyMs,
+        s.windowLongestGapMs);
+    s.windowFrames = 0;
+    s.windowCopyMs = 0;
+    s.windowWorstCopyMs = 0;
+}
 
 State& state() noexcept
 {
@@ -246,6 +289,7 @@ void* angleScanoutCopy(
             std::strstr(extensions, "EGL_ANGLE_metal_texture_client_buffer") != nullptr;
         const bool disabled = std::getenv("UML_ANGLE_SCANOUT_READBACK") != nullptr;
         s.device = MTLCreateSystemDefaultDevice();
+        s.stats = std::getenv("UML_ANGLE_SCANOUT_STATS") != nullptr;
         s.usable = offered && !disabled && s.device != nil;
         std::fprintf(
             stderr,
@@ -272,6 +316,7 @@ void* angleScanoutCopy(
     while (glGetError() != GL_NO_ERROR) {
     }
 
+    const auto copyBegin = std::chrono::steady_clock::now();
     auto& slot = s.ring[s.next];
     GLuint framebuffers[2] {};
     glGenFramebuffers(2, framebuffers);
@@ -310,6 +355,8 @@ void* angleScanoutCopy(
     // The display samples the texture from its own Metal queue; the copy has
     // to be complete before that, and Metal orders nothing across queues.
     glFinish();
+    if (s.stats)
+        account(s, copyBegin);
     maybeDump(s, slot.metal);
     s.next = (s.next + 1) % kRingSize;
     if (++s.frames == 1)
