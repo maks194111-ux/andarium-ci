@@ -18,7 +18,28 @@ Applied to the device and the Simulator builds of ANGLE alike.
 import sys
 from pathlib import Path
 
-FILE = "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm"
+PROGRAM = "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm"
+POOL = "src/libANGLE/renderer/metal/mtl_buffer_pool.mm"
+BUFFER = "src/libANGLE/renderer/metal/BufferMtl.mm"
+EXTRA = {
+    # A pool that starts at size 0 and is asked for 0 bytes would create a
+    # zero-length (nil) Metal buffer: allocate at least one aligned unit.
+    POOL: [(
+        "    size_t sizeToAllocate = roundUp(sizeInBytes, mAlignment);\n",
+        "    size_t sizeToAllocate = roundUp(std::max<size_t>(sizeInBytes, 1), mAlignment);\n",
+    )],
+    # A cached uniform conversion made at a smaller offset covers only the
+    # blocks that existed below the buffer's end; an offset at or past the
+    # end gets its own (zero-filled) conversion instead of a slice that
+    # starts at the end of the converted buffer.
+    BUFFER: [(
+        "            if (buffer.offset.second <= offset.second &&\n"
+        "                (offset.second - buffer.offset.second) % buffer.uniformBufferBlockSize == 0)\n",
+        "            if (buffer.offset.second <= offset.second &&\n"
+        "                (offset.second - buffer.offset.second) % buffer.uniformBufferBlockSize == 0 &&\n"
+        "                (offset.second < size() || buffer.offset.second == offset.second))\n",
+    )],
+}
 EDITS = [
     (
         "    size_t numBlocksToCopy =\n"
@@ -76,16 +97,22 @@ EDITS = [
 ]
 
 
-def apply(root: Path) -> None:
-    path = root / FILE
+def edit(root: Path, relative: str, edits) -> None:
+    path = root / relative
     text = path.read_text()
-    for old, new in EDITS:
+    for old, new in edits:
         count = text.count(old)
         if count != 1:
-            raise SystemExit(f"{FILE}: expected exactly one match, found {count}:\n{old}")
+            raise SystemExit(f"{relative}: expected exactly one match, found {count}:\n{old}")
         text = text.replace(old, new)
     path.write_text(text)
-    print(f"patched {FILE} (empty uniform buffers)")
+    print(f"patched {relative} (empty uniform buffers)")
+
+
+def apply(root: Path) -> None:
+    edit(root, PROGRAM, EDITS)
+    for relative, edits in EXTRA.items():
+        edit(root, relative, edits)
 
 
 if __name__ == "__main__":
