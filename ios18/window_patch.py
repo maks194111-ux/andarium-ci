@@ -6,10 +6,11 @@ device runtime start inside the iOS Simulator.
 Two changes to darwin/runtime/native_kernel_layout.cpp:
   1. when the reservation fails, the log names the address asked for, what the
      system answered and the error, instead of only the size;
-  2. a process inside the iOS Simulator is a macOS process, like an iOS app on
-     a Mac, so it takes the placement upstream already uses there.  A phone
-     never has SIMULATOR_UDID in its environment, so its placement is
-     unchanged.
+  2. when the system does not give the address asked for, the window is asked
+     for at several addresses above the kernel's own before "anywhere".  An
+     unhinted answer is usually low, and upstream then gives up; that is what
+     happens inside the iOS Simulator.  A host that gives the first address
+     (the established layout) is unaffected.
 Every replacement must match exactly once, or the script fails.
 """
 import sys
@@ -27,11 +28,7 @@ def replace(old: str, new: str) -> None:
     text = text.replace(old, new)
 
 
-replace("#include <cstdio>\n", "#include <cerrno>\n#include <cstdio>\n#include <cstdlib>\n")
-replace("\tif (::uml::platform::running_ios_app_on_macos()) {\n",
-        "\tif (::uml::platform::running_ios_app_on_macos() ||\n"
-        "\t    (std::getenv(\"SIMULATOR_UDID\") != nullptr &&\n"
-        "\t     std::getenv(\"UML_SIMULATOR_DEVICE_WINDOW\") == nullptr)) {\n")
+replace("#include <cstdio>\n", "#include <cerrno>\n#include <cstdio>\n")
 replace("\tvoid *reserved = mmap(reinterpret_cast<void *>(geometry.window_start),\n"
         "\t\treservation, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1,\n"
         "\t\t0);\n",
@@ -40,6 +37,45 @@ replace("\tvoid *reserved = mmap(reinterpret_cast<void *>(geometry.window_start)
         "\t\t0);\n"
         "\tconst void *const first_answer = reserved;\n"
         "\tconst int first_error = reserved == MAP_FAILED ? errno : 0;\n")
+replace("\t\tmunmap(reserved, reservation);\n"
+        "\t\treserved = placement == WindowPlacement::exact ? MAP_FAILED :\n"
+        "\t\t\tmmap(nullptr, reservation, PROT_NONE,\n"
+        "\t\t\t\tMAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);\n",
+        "\t\tmunmap(reserved, reservation);\n"
+        "\t\treserved = MAP_FAILED;\n"
+        "\t\tif (placement != WindowPlacement::exact) {\n"
+        "\t\t\t/* Ask above the kernel's address before asking anywhere:\n"
+        "\t\t\t * an unhinted answer is usually low, and a low window\n"
+        "\t\t\t * cannot hold the kernel. */\n"
+        "\t\t\tconstexpr std::uintptr_t gib = std::uintptr_t{1} << 30;\n"
+        "\t\t\tconst std::uintptr_t hints[] {\n"
+        "\t\t\t\tgeometry.window_start + 2U * gib,\n"
+        "\t\t\t\tgeometry.window_start + 4U * gib,\n"
+        "\t\t\t\t64U * gib, 128U * gib, 256U * gib, 1024U * gib, 0,\n"
+        "\t\t\t};\n"
+        "\t\t\tfor (const auto hint : hints) {\n"
+        "\t\t\t\tvoid *const answer = mmap(\n"
+        "\t\t\t\t\treinterpret_cast<void *>(hint), reservation,\n"
+        "\t\t\t\t\tPROT_NONE,\n"
+        "\t\t\t\t\tMAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);\n"
+        "\t\t\t\tif (answer == MAP_FAILED)\n"
+        "\t\t\t\t\tcontinue;\n"
+        "\t\t\t\tconst auto where =\n"
+        "\t\t\t\t\treinterpret_cast<std::uintptr_t>(answer);\n"
+        "\t\t\t\tif (hint == 0 ||\n"
+        "\t\t\t\t    ((where & (DARWIN_UML_GUEST_PAGE_SIZE - 1U)) == 0U &&\n"
+        "\t\t\t\t     where >= DARWIN_UML_NATIVE_LINK_ADDRESS)) {\n"
+        "\t\t\t\t\treserved = answer;\n"
+        "\t\t\t\t\tstd::fprintf(stderr,\n"
+        "\t\t\t\t\t\t\"UML: window placed at %p (asked %p first, got %p)\\n\",\n"
+        "\t\t\t\t\t\tanswer,\n"
+        "\t\t\t\t\t\treinterpret_cast<void *>(geometry.window_start),\n"
+        "\t\t\t\t\t\tfirst_answer);\n"
+        "\t\t\t\t\tbreak;\n"
+        "\t\t\t\t}\n"
+        "\t\t\t\tmunmap(answer, reservation);\n"
+        "\t\t\t}\n"
+        "\t\t}\n")
 replace("\tif (reserved == MAP_FAILED)\n\t\treturn {};\n"
         "\tconst auto base = reinterpret_cast<std::uintptr_t>(reserved);\n",
         "\tif (reserved == MAP_FAILED) {\n"
@@ -58,4 +94,4 @@ replace("\t    base < DARWIN_UML_NATIVE_LINK_ADDRESS) {\n\t\tmunmap(reserved, re
         "\t\t\tfirst_answer, reserved);\n"
         "\t\tmunmap(reserved, reservation);\n")
 path.write_text(text)
-print("address window: failures are explained; Simulator hosts take the Mac placement")
+print("address window: failures are explained; higher addresses are tried before giving up")
