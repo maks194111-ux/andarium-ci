@@ -41,12 +41,39 @@ PATCHES = {
     # Simulator only: name any argument-buffer binding the Simulator's Metal
     # service would refuse, and leave it out, instead of losing the service.
     "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm": [(
+        "#include <array>\n",
+        "#include <array>\n#include <mutex>\n#include <set>\n",
+    ), (
+        # Diagnostics: the layout each uniform argument encoder reflects...
+        "        encoder->argumentIndicesKnown = true;\n",
+        "        for (MTLStructMember *member in reflection.bufferStructType.members)\n"
+        "        {\n"
+        "            NSLog(@\"Andarium ANGLE UBO layout %p %@: %@ index %lu type %lu array %lu offset %lu\",\n"
+        "                  (__bridge void *)encoder->metalArgBufferEncoder.get(), function.name, member.name,\n"
+        "                  (unsigned long)member.argumentIndex, (unsigned long)member.dataType,\n"
+        "                  (unsigned long)(member.arrayType ? member.arrayType.arrayLength : 0),\n"
+        "                  (unsigned long)member.offset);\n"
+        "        }\n"
+        "        encoder->argumentIndicesKnown = true;\n",
+    ), (
         "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
         "        if (offset >= mtlBuffer->size())\n"
         "        {\n"
         "            NSLog(@\"Andarium ANGLE UBO: block %u slot %u offset %zu length %zu\",\n"
         "                  bufferIndex, actualBufferIdx, offset, mtlBuffer->size());\n"
         "            continue;\n"
+        "        }\n"
+        "        {\n"
+        "            // ...and, once per encoder and slot, the binding about to be encoded.\n"
+        "            static auto *sLogMutex = new std::mutex();\n"
+        "            static auto *sLogged   = new std::set<std::pair<const void *, uint32_t>>();\n"
+        "            std::lock_guard<std::mutex> lock(*sLogMutex);\n"
+        "            const void *key = (__bridge const void *)bufferEncoder.metalArgBufferEncoder.get();\n"
+        "            if (sLogged->insert({key, actualBufferIdx}).second)\n"
+        "            {\n"
+        "                NSLog(@\"Andarium ANGLE UBO encode %p slot %u block %u offset %zu length %zu\",\n"
+        "                      key, actualBufferIdx, bufferIndex, offset, mtlBuffer->size());\n"
+        "            }\n"
         "        }\n"
         "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
     )],
