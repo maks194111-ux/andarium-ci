@@ -157,7 +157,7 @@ RESULT=0
 # The limit makes the Mac run size its budgets as a device with that limit
 # does and write a "virtual Jetsam" line when the footprint passes it.
 profile() {
-  local name=$1 memory=$2 hertz=$3 limit=$4 width=$5 height=$6 dpi=$7
+  local name=$1 memory=$2 hertz=$3 limit=$4 width=$5 height=$6 dpi=$7 engine=${8:-gadgets}
   local dir="$OUT/$name"; mkdir -p "$dir"
   stage "profile $name: RAM $memory, $hertz Hz, limit ${limit} MiB, ${width}x${height}"
   export UML_GUEST_REFRESH_HZ=$hertz
@@ -165,11 +165,11 @@ profile() {
   local started=$(date +%s)
   python3 tools/boot_android.py --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
     --display offscreen --width "$width" --height "$height" --dpi "$dpi" --audio-output null \
-    --cpus "$CPUS" --memory "$memory" --adb-timeout 900 --boot-timeout 1500 \
+    --cpus "$CPUS" --memory "$memory" --engine "$engine" --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   local booted=0 i state
-  for i in $(seq 1 150); do
+  for i in $(seq 1 300); do
     sleep 10
     kill -0 "$launcher" 2>/dev/null || { echo "launcher exited"; break; }
     state=$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
@@ -262,11 +262,7 @@ GUEST
       for setting in "$@"; do guest shell "setprop ${setting%%=*} ''"; done
     }
     variant same
-    # Mesa on Android reads option NAME from the property
-    # debug.mesa.<name in lower case with dots for underscores>.
-    variant noerror debug.mesa.mesa.no.error=true
-    variant glthread debug.mesa.mesa.glthread=true debug.mesa.mesa.glthread.driver=true
-    variant both debug.mesa.mesa.no.error=true debug.mesa.mesa.glthread=true debug.mesa.mesa.glthread.driver=true
+    variant again
     guest shell 'ls /vendor/lib64/egl /vendor/lib64/dri 2>/dev/null; getprop | grep -i mesa; strings /vendor/lib64/dri/*.so 2>/dev/null | grep -m3 -iE "^Mesa [0-9]|mesa [0-9]+\.[0-9]+\.[0-9]"' 2>&1 | head -30
     guest shell "top -b -n 1 -H -m 25 -o PID,TID,%CPU,CMD,NAME" > "$dir/guest-top.txt" 2>&1
     guest shell "getprop | grep -iE 'hwui|renderer|debug.sf|ro.surface_flinger|vsync|ro.hardware.egl|ro.opengles|zygote|dalvik.vm.usejit|dalvik.vm.dex2oat-filter|pm.dexopt'" > "$dir/guest-props.txt" 2>&1
@@ -296,6 +292,11 @@ GUEST
 set +e
 # The display a 120 Hz phone gives the guest, with no memory limit.
 profile full 4G 120 0 720 1280 320
+if [ "${PROFILES:-all}" = jit ]; then
+  # The same display on the engine that compiles guest code to host code.
+  profile jit 4G 120 0 720 1280 320 jit
+  echo "RESULT: interpreter and JIT profiles finished (status $RESULT)."; exit 0
+fi
 if [ "${PROFILES:-all}" = first ]; then
   [ "$RESULT" = 0 ] && { echo "RESULT: first profile completed."; exit 0; }
   echo "RESULT: the first profile failed."; exit 1
