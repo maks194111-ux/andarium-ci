@@ -16,23 +16,28 @@ def select(runtimes, devices, major, requested_device):
     ]
     if not available:
         raise ValueError(f"No available iOS {major} runtime; no substitute was used")
-    runtime = max(available, key=lambda r: tuple(int(n) for n in r["version"].split(".")))
-    allowed = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
-    candidates = [
-        d for d in devices["devicetypes"]
-        if not allowed or d["identifier"] in allowed
-    ]
-    if requested_device == "iPad-Pro-auto":
-        candidates = [d for d in candidates if d["name"].startswith("iPad Pro")]
-        candidates.sort(key=lambda d: d["name"], reverse=True)
-    else:
+    # Several runtimes can share a version (for example a second 27.2 build
+    # that supports a single device type); try the newest first and, within a
+    # version, the one that supports the most device types.
+    available.sort(key=lambda r: (tuple(int(n) for n in r["version"].split(".")),
+                                  len(r.get("supportedDeviceTypes", []))), reverse=True)
+    for runtime in available:
+        allowed = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
         candidates = [
-            d for d in candidates
-            if d["identifier"] == f"com.apple.CoreSimulator.SimDeviceType.{requested_device}"
+            d for d in devices["devicetypes"]
+            if not allowed or d["identifier"] in allowed
         ]
-    if not candidates:
-        raise ValueError(f"No installed compatible device type for {requested_device}")
-    return runtime, candidates[0]
+        if requested_device == "iPad-Pro-auto":
+            candidates = [d for d in candidates if d["name"].startswith("iPad Pro")]
+            candidates.sort(key=lambda d: d["name"], reverse=True)
+        else:
+            candidates = [
+                d for d in candidates
+                if d["identifier"] == f"com.apple.CoreSimulator.SimDeviceType.{requested_device}"
+            ]
+        if candidates:
+            return runtime, candidates[0]
+    raise ValueError(f"No installed compatible device type for {requested_device}")
 
 
 def classify(console, alive):
