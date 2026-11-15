@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 name: iOS 18 Simulator run (iPhone 11)
+run-name: Simulator ${{ inputs.device }} iOS ${{ inputs.ios }} ${{ inputs.memory_mib }}
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +13,15 @@ on:
       memory_mib:
         description: Guest RAM in MiB (empty for the app's own choice)
         default: ""
+      device:
+        description: Simulator device type
+        default: "iPhone-11"
+      ios:
+        description: iOS major version of the Simulator runtime
+        default: "18"
+      runner:
+        description: Runner label (macos-15 has iOS 18; xcode-27 has iOS 26 and later)
+        default: "macos-15"
       seconds:
         description: How long to watch the Android start
         default: "420"
@@ -21,7 +31,7 @@ permissions:
 jobs:
   simulator:
     if: github.event.repository.private == false
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     steps:
       - name: Fetch public sources
@@ -48,10 +58,10 @@ jobs:
         shell: bash
         run: |
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
-          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim" "${{ inputs.memory_mib }}"
+          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim" "${{ inputs.memory_mib }}" "${{ inputs.device }}" "${{ inputs.ios }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: simulator-report
+          name: simulator-report-${{ inputs.device }}-ios${{ inputs.ios }}
           path: ${{ runner.temp }}/simulator-report
           retention-days: 14
