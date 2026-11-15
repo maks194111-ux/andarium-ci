@@ -47,6 +47,19 @@ edit("Andarium/Andarium/Live/AppEntry.swift", [
     ("return MTLCreateSystemDefaultDevice()?.supportsFamily(.metal4) ?? false",
      "return true"),
 ])
+# apply.py wraps the upstream check for iOS versions without the Metal 4
+# symbol and answers "no" below iOS 26; that refused every system this build
+# is for.  The whole answer is replaced, and the result is checked.
+entry = root / "Andarium/Andarium/Live/AppEntry.swift"
+text = entry.read_text()
+start = text.index("static func drawsGuestGraphics() -> Bool {")
+end = text.index("\n    }\n", start)
+text = text[:start] + "static func drawsGuestGraphics() -> Bool {\n        return true" + text[end:]
+entry.write_text(text)
+body = text[text.index("static func drawsGuestGraphics() -> Bool {"):]
+body = body[:body.index("\n    }\n")]
+if "false" in body or "available" in body:
+    raise SystemExit("AppEntry: the graphics answer can still be no")
 # The title names the build, so a screenshot shows which package is running.
 edit("Andarium/Andarium/Shared/HomeView.swift", [
     ('.navigationTitle("Andarium")', '.navigationTitle("Andarium 11 (iOS 18)")'),
