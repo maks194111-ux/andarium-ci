@@ -295,8 +295,34 @@ GUEST
       grep -E '^ *[0-9.]+%' "$dir/perf-$tag-symbol.txt" | head -60 | cut -c1-190
       echo "::notice title=perf $tag::$(grep -E '^ *[0-9.]+%' "$dir/perf-$tag-dso.txt" | head -12 | tr -s ' ' | cut -c1-90 | tr '\n' ';')"
     }
-    sample settings "$(guest shell pidof com.android.settings | tr -d '\r')"
-    sample surfaceflinger "$(guest shell pidof surfaceflinger | tr -d '\r')"
+    if [ -f "$WORK/probe/probe.apk" ]; then
+      guest install -r "$WORK/probe/probe.apk" 2>&1 | tail -1
+      guest shell "am start -W -n local.andarium.probe/.ProbeActivity" >/dev/null 2>&1; sleep 6
+      guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 2
+      guest exec-out screencap -p > "$dir/probe.png"
+      guest shell "dumpsys gfxinfo local.andarium.probe reset >/dev/null"
+      guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+      guest shell "dumpsys gfxinfo local.andarium.probe framestats" > "$dir/framestats-probe.txt" 2>&1
+      python3 "$HERE/framestats.py" "$name / probe app" "$dir/framestats-probe.txt" || true
+      for event in cpu-clock:u task-clock:u cpu-clock; do
+        guest shell "simpleperf record --app local.andarium.probe -e $event -f 2000 --duration 12 -o /data/local/tmp/perf-probe.data" > "$dir/perf-probe-record.txt" 2>&1 &
+        recorder=$!
+        sleep 2
+        guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+        wait $recorder
+        guest shell "simpleperf report -i /data/local/tmp/perf-probe.data --sort comm,dso 2>&1" > "$dir/perf-probe-dso.txt" 2>&1
+        guest shell "simpleperf report -i /data/local/tmp/perf-probe.data --sort comm,dso,symbol 2>&1" > "$dir/perf-probe-symbol.txt" 2>&1
+        grep -q '^Samples: [1-9]' "$dir/perf-probe-dso.txt" && break
+        echo "simpleperf with $event:"; tail -4 "$dir/perf-probe-record.txt" | cut -c1-220
+      done
+      echo "--- $name: probe application, processor samples by thread and library ($event)"
+      grep -E '^(Samples|Event count)' "$dir/perf-probe-dso.txt"
+      grep -E '^ *[0-9.]+%' "$dir/perf-probe-dso.txt" | head -40 | cut -c1-160
+      echo "--- $name: probe application by function"
+      grep -E '^ *[0-9.]+%' "$dir/perf-probe-symbol.txt" | head -90 | cut -c1-200
+    else
+      echo "no probe application was provided"
+    fi
     # 4. The same scroll with settings of the guest's graphics driver that move
     #    or remove processor work without changing what is drawn.
     variant() {
