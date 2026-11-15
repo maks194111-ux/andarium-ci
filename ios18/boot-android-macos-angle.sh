@@ -30,6 +30,7 @@ python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
+python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 # The CI Mac is a virtual machine without a hardware video encoder, and the
 # launcher treats the missing encoder as fatal. The test boots without that
 # device; it is unrelated to the graphics path under test.
