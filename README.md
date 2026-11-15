@@ -99,3 +99,7 @@ ANGLE's Metal backend needs neither Metal 4 nor Vulkan. `ios18-angle-build.yml` 
 ## iOS 18 engine and app build (experiment)
 
 `ios18-engine-build.yml` builds the whole device runtime for arm64 iOS 18.0 on the ANGLE path (libepoxy, virglrenderer, network stack, the upstream release kernel bundle, `KernariumRuntime`) and packages it with ANGLE's frameworks. `ios18-app-build.yml` builds the Andarium app against that package with minimum iOS 18.0 and ad-hoc signs it with upstream's entitlements. The artifact carries no Android system image. Both workflows succeed; the result has never run on a device, so Android boot, graphics (OpenGL ES 3.0, no Vulkan, readback presentation), frame rate and stability are unverified.
+
+## Frame measurements and small memory limits (ANGLE path, macOS host)
+The boot test runs three profiles (120 Hz without a memory limit; 60 Hz at 828x1792 with a 2098 MiB process limit and 1408 or 1024 MiB of guest RAM) and records display statistics, application frame times, guest memory and the host's frame copy cost. On the hosted 3-core Mac: scrolling Settings takes about 12 ms per frame at the median (18-25 ms at the 90th percentile), the notification shade about 27-36 ms; the frame copy costs about 1 ms. The limit is the guest's UI thread, not the display path. These are not phone figures.
+ios18/lowmem_patch.py gives a new guest the RAM that fits on devices whose limit leaves less than 1536 MiB (floor 1024 MiB) and lets the settings offer sizes from 1024 MiB.
