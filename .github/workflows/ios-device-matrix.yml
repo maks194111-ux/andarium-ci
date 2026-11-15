@@ -52,7 +52,7 @@ jobs:
           run-id: ${{ inputs.angle_sim_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/angle-sim-download
-      - name: Check Google Android boot and continued execution
+      - name: Start the simulator check
         shell: bash
         env:
           IMAGE_KIND: gapps
@@ -60,10 +60,57 @@ jobs:
         run: |
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
-          bash ci/ios18/run-simulator.sh \
-            "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
-            "$RUNNER_TEMP" 420 "$RUNNER_TEMP/angle-sim" \
-            "${{ matrix.memory }}" "${{ matrix.device }}" "${{ matrix.ios }}"
+          (
+            set +e
+            bash ci/ios18/run-simulator.sh \
+              "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
+              "$RUNNER_TEMP" 420 "$RUNNER_TEMP/angle-sim" \
+              "${{ matrix.memory }}" "${{ matrix.device }}" "${{ matrix.ios }}"
+            result=$?
+            printf '%s\n' "$result" > "$RUNNER_TEMP/simulator.exit.tmp"
+            mv "$RUNNER_TEMP/simulator.exit.tmp" "$RUNNER_TEMP/simulator.exit"
+          ) > "$RUNNER_TEMP/simulator-live.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/simulator.pid"
+      - name: Wait for the home screenshot
+        run: python3 ci/ios18/wait_simulator_progress.py "$RUNNER_TEMP" "01-home.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: progress-home-${{ matrix.device }}-ios${{ matrix.ios }}
+          path: ${{ runner.temp }}/simulator-report/01-home.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Wait for the early Android screenshot
+        run: python3 ci/ios18/wait_simulator_progress.py "$RUNNER_TEMP" "03-start-*.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: progress-early-${{ matrix.device }}-ios${{ matrix.ios }}
+          path: ${{ runner.temp }}/simulator-report/03-start-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Wait for the next Android screenshot
+        run: python3 ci/ios18/wait_simulator_progress.py "$RUNNER_TEMP" "06-start-*.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: progress-boot-${{ matrix.device }}-ios${{ matrix.ios }}
+          path: ${{ runner.temp }}/simulator-report/06-start-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Collect the final check result
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for attempt in $(seq 1 120); do
+            [ -f "$RUNNER_TEMP/simulator.exit" ] && break
+            [ -f "$RUNNER_TEMP/simulator.pid" ] || break
+            kill -0 "$(cat "$RUNNER_TEMP/simulator.pid")" 2>/dev/null || break
+            sleep 5
+          done
+          cat "$RUNNER_TEMP/simulator-live.log"
+          mkdir -p "$RUNNER_TEMP/simulator-report"
+          cp "$RUNNER_TEMP/simulator-live.log" "$RUNNER_TEMP/simulator-report/harness.log"
+          [ -f "$RUNNER_TEMP/simulator.exit" ] || exit 1
+          exit "$(cat "$RUNNER_TEMP/simulator.exit")"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
