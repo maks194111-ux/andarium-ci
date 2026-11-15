@@ -6,6 +6,9 @@ on:
       angle_run:
         description: Run id of the ANGLE build that holds the angle-metal artifact
         required: true
+      profiles:
+        description: "all, or first for only the first profile"
+        default: "all"
 permissions:
   contents: read
   actions: read
@@ -48,6 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"
+          export PROFILES="${{ inputs.profiles }}"
           bash ci/ios18/boot-android-macos-angle.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/angle-package"
       - uses: actions/upload-artifact@v4
         if: always()
