@@ -19,6 +19,9 @@ SECONDS_TO_WATCH=${3:-420}
 ANGLE_SIM=${4:-}
 # Optional: guest RAM in MiB, to start Android at the size a 4 GB phone gets.
 MEMORY_MIB=${5:-}
+# Optional: Simulator device type and iOS major version, to cover other models.
+DEVICE_TYPE=${6:-iPhone-11}
+IOS_MAJOR=${7:-18}
 stage() { echo; echo "===== STAGE: $* ====="; }
 
 stage "host"
@@ -65,14 +68,14 @@ for framework in "$APP"/Frameworks/*.framework; do codesign --force --sign - "$f
 # keychain refuses the adb key, so the app's adb features do not work here.
 codesign --force --sign - "$APP" || exit 1
 
-stage "iPhone 11 on iOS 18"
+stage "$DEVICE_TYPE on iOS $IOS_MAJOR"
 xcrun simctl list runtimes
-RUNTIME=$(xcrun simctl list runtimes | grep -o "com.apple.CoreSimulator.SimRuntime.iOS-18-[0-9]*" | sort -V | tail -1)
-[ -n "$RUNTIME" ] || { echo "no iOS 18 runtime on this Mac"; exit 1; }
-UDID=$(xcrun simctl create "Andarium iPhone 11" com.apple.CoreSimulator.SimDeviceType.iPhone-11 "$RUNTIME") || exit 1
+RUNTIME=$(xcrun simctl list runtimes | grep -o "com.apple.CoreSimulator.SimRuntime.iOS-${IOS_MAJOR}-[0-9]*" | sort -V | tail -1)
+[ -n "$RUNTIME" ] || { echo "RESULT: no iOS $IOS_MAJOR runtime on this Mac"; exit 1; }
+UDID=$(xcrun simctl create "Andarium $DEVICE_TYPE" "com.apple.CoreSimulator.SimDeviceType.$DEVICE_TYPE" "$RUNTIME") || { echo "RESULT: $DEVICE_TYPE cannot be created on $RUNTIME"; xcrun simctl list devicetypes | grep iPhone; exit 1; }
 xcrun simctl boot "$UDID" || exit 1
 xcrun simctl bootstatus "$UDID" -b | tail -2
-echo "device: iPhone 11, runtime $RUNTIME, bundle $BUNDLE"
+echo "device: $DEVICE_TYPE, runtime $RUNTIME, bundle $BUNDLE"
 xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
 
 shot() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 && echo "screenshot $1"; }
@@ -101,6 +104,7 @@ while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; ENDED=1; break; fi
 done
 [ -z "${ENDED:-}" ] && echo "RESULT start: app still running after ${elapsed}s"
+echo "SUMMARY $DEVICE_TYPE iOS $IOS_MAJOR ($RUNTIME): window=$(grep -ac 'UML: cannot reserve' "$OUT/console-start.txt") refusals, kernel=$(grep -ac 'boot reached kernelRunning\|boot reached androidStarting' "$OUT/console-start.txt"), screen=$(grep -ac 'boot reached screenStarting' "$OUT/console-start.txt"), first-frame=$(grep -ac 'first frame copied' "$OUT/console-start.txt"), ready=$(grep -ac 'boot reached ready' "$OUT/console-start.txt"), stopped=$(grep -ac 'runtime returned' "$OUT/console-start.txt")"
 host_memory() { vm_stat | awk '/Pages free|Pages inactive|Pages wired|Pages occupied by compressor|Swapouts/ {printf "%s %s; ", $0, ""}'; echo; }
 echo "host memory: $(host_memory)"; sysctl -n vm.swapusage
 kill "$LOGPID" 2>/dev/null
