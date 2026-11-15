@@ -8,14 +8,23 @@ jobs:
   probe:
     if: github.event.repository.private == false
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
-      - name: What the runner has
+      - name: Fetch public sources
         shell: bash
         run: |
-          sw_vers; xcodebuild -version; ls /Applications | grep -i xcode
-          xcrun simctl list runtimes
-          xcrun simctl list devicetypes | grep -iE 'iPhone (11|SE|12|16)'
-          ls /Library/Developer/CoreSimulator/Volumes 2>/dev/null || true
-          df -h / | tail -1
-          xcodebuild -downloadPlatform iOS -help 2>&1 | head -30 || true
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+      - name: iPhone 11 on iOS 18 in the Simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID=$(bash ci/ios18/simulator-ios18.sh | tail -1)
+          xcrun simctl list devices | grep -i andarium
+          xcrun simctl getenv "$UDID" SIMULATOR_RUNTIME_VERSION
+          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/home.png"
+          xcrun simctl spawn "$UDID" sysctl -n hw.memsize hw.ncpu || true
+          ls -la "$RUNNER_TEMP/home.png"
