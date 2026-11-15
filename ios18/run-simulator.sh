@@ -110,6 +110,13 @@ stage "launch 2: start Android"
 xcrun simctl spawn "$UDID" log stream --style compact --predicate 'process == "Andarium"' > "$OUT/oslog.txt" 2>&1 &
 LOGPID=$!
 [ -n "$MEMORY_MIB" ] && export SIMCTL_CHILD_KERNARIUM_GUEST_MEMORY_MIB="$MEMORY_MIB" && echo "guest RAM stated: $MEMORY_MIB MiB"
+if [ "${METAL_VALIDATION:-0}" = 1 ]; then
+  # The app-side Metal validation layer names the failing call in readable
+  # text; the Simulator's Metal service only logs '<private>'.
+  export SIMCTL_CHILD_MTL_DEBUG_LAYER=1 SIMCTL_CHILD_MTL_DEBUG_LAYER_ERROR_MODE=nslog \
+    SIMCTL_CHILD_MTL_DEBUG_LAYER_WARNING_MODE=nslog SIMCTL_CHILD_METAL_DEVICE_WRAPPER_TYPE=1
+  echo "Metal validation layer enabled"
+fi
 SIMCTL_CHILD_ANDARIUM_START=normal SIMCTL_CHILD_ANDARIUM_STATS=1 \
   xcrun simctl launch --console-pty "$UDID" "$BUNDLE" > "$OUT/console-start.txt" 2>&1 &
 began=$(date +%s); elapsed=0; index=2
