@@ -197,7 +197,13 @@ profile() {
     if [ "${BENCH:-0}" = 1 ]; then
       # Processor-bound work in one process: how fast does each engine run
       # code that is already hot? "user" is processor time, not waiting.
-      guest shell 'cd /data/local/tmp; dd if=/dev/urandom of=blob bs=1048576 count=24 2>/dev/null; ls -la blob' 2>&1 | tail -1
+      if [ -f "$WORK/probe/micro" ]; then
+        guest push "$WORK/probe/micro" /data/local/tmp/micro >/dev/null 2>&1
+        guest shell 'chmod 755 /data/local/tmp/micro; /data/local/tmp/micro' 2>&1 | tr -d '\r' | sed "s/^micro/$name:/"
+        echo "--- $name: where a shell loop of 60000 steps spends processor time"
+        guest shell 'cd /data/local/tmp; simpleperf record -e cpu-clock:u -f 2000 -g -o sh.data sh -c "i=0; while [ \$i -lt 60000 ]; do i=\$((i+1)); done" 2>&1 | tail -3; simpleperf report -i sh.data --sort dso,symbol 2>&1 | grep -E "^(Samples| *[0-9.]+%)" | head -45; echo "--- with callers"; simpleperf report -i sh.data --children --sort dso,symbol 2>&1 | grep -E "^ *[0-9.]+%" | head -40' 2>&1 | tr -d '\r' | cut -c1-200
+        [ "${BENCH_SHORT:-1}" = 1 ] && { kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null; pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1; rm -rf "$WORK/instance-$name"; sleep 5; return 0; }
+      fi
       for round in 1 2; do
         echo "--- $name bench round $round: shell loop of 1500000 steps"
         guest shell 'time sh -c "i=0; while [ \$i -lt 1500000 ]; do i=\$((i+1)); done"' 2>&1 | tr -d '\r' | grep -E 'real|user|sys' | tr '\n' ' '; echo
@@ -379,7 +385,6 @@ set +e
 if [ "${PROFILES:-all}" = bench ]; then
   export BENCH=1
   profile bench-interpreter 4G 60 0 720 1280 320 gadgets
-  profile bench-jit 4G 60 0 720 1280 320 jit
   echo "RESULT: engine benchmark finished."; exit 0
 fi
 # The display a 120 Hz phone gives the guest, with no memory limit.
