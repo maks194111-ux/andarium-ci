@@ -511,6 +511,7 @@ if [ "${PROFILES:-all}" = text ]; then
   dir="$OUT/text"; mkdir -p "$dir"
   set +e
   export VREND_DEBUG=${TEXT_VREND_DEBUG:-gles,bgra,feat,tweak,glsl} VIRGL_LOG_LEVEL=debug VIRGL_LOG_FILE="$dir/virgl.log"
+  if [ "${TEXT_USE_INTEGER:-1}" = 1 ]; then export VIRGL_USE_INTEGER=1; fi
   export UML_GUEST_REFRESH_HZ=60
   python3 tools/boot_android.py --instance "$WORK/instance-text" --reset --provision --emulator "$EMULATOR" \
     --display offscreen --width 720 --height 1280 --dpi 320 --audio-output null \
