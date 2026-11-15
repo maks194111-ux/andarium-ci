@@ -42,7 +42,7 @@ PATCHES = {
     # service would refuse, and leave it out, instead of losing the service.
     "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm": [(
         "#include <array>\n",
-        "#include <array>\n#include <mutex>\n#include <set>\n",
+        "#include <array>\n#include <cstring>\n#include <mutex>\n#include <set>\n",
     ), (
         # Diagnostics: the layout each uniform argument encoder reflects...
         "        encoder->argumentIndicesKnown = true;\n",
@@ -103,6 +103,28 @@ PATCHES = {
         "            }\n"
         "        }\n"
         "    }\n"
+        "    // The iOS 18 Simulator's encoders report no layout (encoded length 0) and\n"
+        "    // its Metal service then finds no argument to set: write each buffer's\n"
+        "    // GPU address where the reflected struct keeps the pointer instead.\n"
+        "    if (encoder->metalArgBufferEncoder && reflection && reflection.bufferStructType &&\n"
+        "        encoder->metalArgBufferEncoder.get().encodedLength == 0)\n"
+        "    {\n"
+        "        encoder->rawAddresses = true;\n"
+        "        encoder->rawLength    = std::max<size_t>(reflection.bufferDataSize, 8);\n"
+        "        for (MTLStructMember *member in reflection.bufferStructType.members)\n"
+        "        {\n"
+        "            const NSUInteger count = member.arrayType ? member.arrayType.arrayLength : 1;\n"
+        "            for (NSUInteger i = 0; i < count; ++i)\n"
+        "            {\n"
+        "                const NSUInteger index = member.argumentIndex + i;\n"
+        "                if (index < 64)\n"
+        "                {\n"
+        "                    encoder->rawOffsets[index] = static_cast<uint32_t>(member.offset + 8 * i);\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        NSLog(@\"Andarium ANGLE UBO raw addresses %@: length %zu\", function.name, encoder->rawLength);\n"
+        "    }\n"
         "    ANGLE_APPLE_ALLOW_DEPRECATED_END\n"
         "    if (encoder->metalArgBufferEncoder)\n",
     ), (
@@ -126,6 +148,61 @@ PATCHES = {
         "            }\n"
         "        }\n"
         "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
+    ), (
+        "        context, bufferEncoder.metalArgBufferEncoder.get().encodedLength, &argumentBuffer));\n",
+        "        context,\n"
+        "        bufferEncoder.rawAddresses ? bufferEncoder.rawLength\n"
+        "                                   : bufferEncoder.metalArgBufferEncoder.get().encodedLength,\n"
+        "        &argumentBuffer));\n",
+    ), (
+        "    ANGLE_UNUSED_VARIABLE(argumentBuffer.buffer()->mapNoSync(context));\n"
+        "\n"
+        "    [bufferEncoder.metalArgBufferEncoder setArgumentBuffer:argumentBuffer.buffer()->get()\n"
+        "                                                    offset:argumentBuffer.offset()];\n",
+        "    uint8_t *argumentBytes = argumentBuffer.buffer()->mapNoSync(context).data();\n"
+        "\n"
+        "    if (bufferEncoder.rawAddresses)\n"
+        "    {\n"
+        "        memset(argumentBytes + argumentBuffer.offset(), 0, bufferEncoder.rawLength);\n"
+        "    }\n"
+        "    else\n"
+        "    {\n"
+        "        [bufferEncoder.metalArgBufferEncoder setArgumentBuffer:argumentBuffer.buffer()->get()\n"
+        "                                                        offset:argumentBuffer.offset()];\n"
+        "    }\n",
+    ), (
+        "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n"
+        "                                                offset:offset\n"
+        "                                               atIndex:actualBufferIdx];\n",
+        "        if (bufferEncoder.rawAddresses)\n"
+        "        {\n"
+        "            if (actualBufferIdx < 64 &&\n"
+        "                bufferEncoder.rawOffsets[actualBufferIdx] + sizeof(uint64_t) <= bufferEncoder.rawLength)\n"
+        "            {\n"
+        "                const uint64_t address = mtlBuffer->get().gpuAddress + offset;\n"
+        "                memcpy(argumentBytes + argumentBuffer.offset() + bufferEncoder.rawOffsets[actualBufferIdx],\n"
+        "                       &address, sizeof address);\n"
+        "            }\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n"
+        "                                                offset:offset\n"
+        "                                               atIndex:actualBufferIdx];\n"
+        "        }\n",
+    ), (
+        "        context, argumentBuffer.offset(), bufferEncoder.metalArgBufferEncoder.get().encodedLength);\n",
+        "        context, argumentBuffer.offset(),\n"
+        "        bufferEncoder.rawAddresses ? bufferEncoder.rawLength\n"
+        "                                   : bufferEncoder.metalArgBufferEncoder.get().encodedLength);\n",
+    )],
+    "src/libANGLE/renderer/metal/ProgramExecutableMtl.h": [(
+        "    bool argumentIndicesKnown     = false;\n",
+        "    bool argumentIndicesKnown     = false;\n"
+        "    // Andarium (Simulator): pointers written as GPU addresses, not encoded.\n"
+        "    bool rawAddresses             = false;\n"
+        "    size_t rawLength              = 0;\n"
+        "    uint32_t rawOffsets[64]       = {};\n",
     )],
 }
 
