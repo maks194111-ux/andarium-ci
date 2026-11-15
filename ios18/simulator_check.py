@@ -79,6 +79,23 @@ def main():
         result = json.loads(result_file.read_text())
         console = (args.output / "console-start.txt").read_text(errors="replace")
         result.update(classify(console, args.alive == "yes"))
+        result["crashes"] = []
+        for report in args.output.glob("*.ips"):
+            try:
+                data = json.loads(report.read_text().split("\n", 1)[1])
+            except (ValueError, IndexError):
+                continue
+            termination = data.get("termination", {})
+            result["crashes"].append({
+                "file": report.name,
+                "exception": data.get("exception"),
+                "termination": termination,
+            })
+            if report.name.startswith("Andarium") and termination.get("namespace") == "METAL" and any(
+                "SimMetalHost" in reason for reason in termination.get("reasons", [])
+            ):
+                result["status"] = "simulator_failure"
+                result["reason"] = "App lost its connection to the simulator Metal service"
         result["scope"] = "Simulator only; not physical-device CPU, memory limits, GPU or signing validation"
         result_file.write_text(json.dumps(result, indent=2))
         print(json.dumps(result, indent=2))
