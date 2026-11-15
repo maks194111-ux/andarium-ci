@@ -441,6 +441,60 @@ GUEST
 }
 
 set +e
+# The Google image the phone build carries, on a device-like budget: does the
+# guest kernel end by itself, and what does it say when it does? The package
+# address comes from a repository secret and is never printed.
+watch_gapps() {
+  local name=$1 memory=$2 limit=$3 cpus=$4 minutes=$5
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  stage "watch $name: Google image, RAM $memory, limit ${limit} MiB, $cpus vCPUs, $minutes min"
+  export UML_GUEST_REFRESH_HZ=60
+  if [ "$limit" != 0 ]; then export UML_MEMORY_LIMIT_MIB=$limit; else unset UML_MEMORY_LIMIT_MIB; fi
+  local started=$(date +%s) booted=0 i
+  python3 tools/boot_android.py --release "$GAPPS_RELEASE" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
+    --display offscreen --width 828 --height 1792 --dpi 326 --audio-output null \
+    --cpus "$cpus" --memory "$memory" --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 $((minutes * 3))); do
+    sleep 20
+    local at=$(( $(date +%s) - started ))
+    if ! kill -0 "$launcher" 2>/dev/null; then note "$name: THE EMULATOR ENDED BY ITSELF after $at s (booted=$booted)"; RESULT=1; break; fi
+    local line=$(guest shell 'echo "boot=$(getprop sys.boot_completed) anim=$(getprop init.svc.bootanim) $(grep -E "MemAvailable|SwapFree" /proc/meminfo | tr -s " " | tr "\n" " ") $(tr "\n" " " < /proc/pressure/memory | cut -c1-60) procs=$(ls /proc | grep -c "^[0-9]")"' 2>/dev/null | tr -d '\r')
+    echo "$name t=${at}s host=$(ps -o rss= -p "$(pgrep -f uml-darwin-android17 | head -1)" 2>/dev/null | awk '{printf "%d MiB", $1/1024}') $line"
+    case "$line" in boot=1*) if [ "$booted" = 0 ]; then booted=1; note "$name: boot_completed after about $at s"; guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard" >/dev/null 2>&1; fi;; esac
+    if [ "$booted" = 1 ] && [ $((i % 6)) = 0 ]; then
+      guest shell "monkey -p com.android.vending -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
+    fi
+  done
+  guest exec-out screencap -p > "$dir/screen.png" 2>/dev/null
+  guest logcat -d > "$dir/logcat.txt" 2>&1
+  guest shell dmesg > "$dir/dmesg.txt" 2>&1
+  echo "--- $name: kills and fatal entries in logcat"
+  grep -ciE "FATAL EXCEPTION|Fatal signal" "$dir/logcat.txt"
+  grep -E "lowmemorykiller|lmkd.*[Kk]ill|Out of memory|oom-kill|FATAL EXCEPTION|Fatal signal|Watchdog|WATCHDOG|init: .*(exited|killed|crash)" "$dir/logcat.txt" | cut -c1-220 | tail -60
+  echo "--- $name: launcher log, lines that name a failure"
+  grep -n -iE "panic|oops|BUG:|out of memory|oom|killed process|virtual Jetsam|memory limit|short of|host fault|fatal|abort|segfault|unable|cannot|error" "$dir/launcher.log" | cut -c1-240 | tail -80
+  echo "--- $name: last 120 lines of the launcher log"
+  tail -120 "$dir/launcher.log" | cut -c1-240
+  kill -INT "$launcher" 2>/dev/null; sleep 20; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"; sleep 5
+}
+if [ "${PROFILES:-all}" = gapps ]; then
+  [ -n "${GAPPS_IPA_URL:-}" ] || { echo "RESULT: no package address was provided."; exit 1; }
+  stage "the Google image of the phone build"
+  curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$GAPPS_IPA_URL" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1)
+  GAPPS_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-experimental-20261114-profiled"
+  cp -R "$STOCK" "$GAPPS_RELEASE"
+  for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+    unzip -p "$WORK/gapps.ipa" "Payload/Andarium.app/andarium-system/$entry" > "$GAPPS_RELEASE/$entry"
+  done
+  rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
+  watch_gapps gapps-1408 1408M 2098 6 ${WATCH_MINUTES:-28}
+  echo "RESULT: Google image watch finished (status $RESULT)."; exit 0
+fi
 if [ "${PROFILES:-all}" = sample ]; then
   export SAMPLE=1
   profile sample 4G 120 0 720 1280 320 gadgets
