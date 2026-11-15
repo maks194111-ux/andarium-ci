@@ -31,6 +31,17 @@ python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
+python3 "$HERE/tier_patch.py" "$UPSTREAM"
+# The launcher script passes the tier threshold named in UML_JIT_TIER.
+python3 - <<'PY3'
+from pathlib import Path
+path = Path("tools/boot_android.py")
+text = path.read_text()
+old = '        f"--execution-engine={options.engine}",\n'
+if text.count(old) != 1:
+    raise SystemExit("launcher engine argument not found")
+path.write_text(text.replace(old, old + '        *([f"--jit-tier={os.environ[\'UML_JIT_TIER\']}"] if os.environ.get("UML_JIT_TIER") else []),\n'))
+PY3
 # The CI Mac is a virtual machine without a hardware video encoder, and the
 # launcher treats the missing encoder as fatal. The test boots without that
 # device; it is unrelated to the graphics path under test.
@@ -292,6 +303,15 @@ GUEST
 set +e
 # The display a 120 Hz phone gives the guest, with no memory limit.
 profile full 4G 120 0 720 1280 320
+if [ "${PROFILES:-all}" = tier ]; then
+  # Busy address spaces move to the JIT after this many instructions.
+  for threshold in ${TIERS:-200000000 2000000000}; do
+    export UML_JIT_TIER=$threshold
+    profile "tier-$threshold" 4G 120 0 720 1280 320 jit
+    unset UML_JIT_TIER
+  done
+  echo "RESULT: interpreter and tiered profiles finished (status $RESULT)."; exit 0
+fi
 if [ "${PROFILES:-all}" = jit ]; then
   # The same display on the engine that compiles guest code to host code.
   profile jit 4G 120 0 720 1280 320 jit
