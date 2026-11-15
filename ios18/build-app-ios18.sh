@@ -15,6 +15,7 @@ ls .build/kernarium-xcframeworks
 python3 "$HERE/apply.py" "$UPSTREAM"
 python3 "$HERE/app_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" app
+python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
 # The bundle's system image directory: filled in when the IPA is assembled.
 mkdir -p .build/andarium-system
 echo "The Android system image is added when the IPA is assembled." > .build/andarium-system/PLACEHOLDER.txt
