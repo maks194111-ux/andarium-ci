@@ -21,7 +21,22 @@ from pathlib import Path
 PROGRAM = "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm"
 POOL = "src/libANGLE/renderer/metal/mtl_buffer_pool.mm"
 BUFFER = "src/libANGLE/renderer/metal/BufferMtl.mm"
+HEADER = "src/libANGLE/renderer/metal/ProgramExecutableMtl.h"
 EXTRA = {
+    # The argument encoder only holds the uniform blocks the compiled Metal
+    # function still uses. Remember which argument indices exist so a block
+    # GL reports active but Metal dropped is not encoded at a missing index
+    # (the Simulator's Metal service aborts with "Failed to find buffer
+    # argument"; a GPU driver writes outside the encoded argument layout).
+    HEADER: [(
+        "    angle::ObjCPtr<id<MTLArgumentEncoder>> metalArgBufferEncoder;\n"
+        "    mtl::BufferPool bufferPool;\n",
+        "    angle::ObjCPtr<id<MTLArgumentEncoder>> metalArgBufferEncoder;\n"
+        "    mtl::BufferPool bufferPool;\n"
+        "    // Andarium: argument indices present in the encoder's layout.\n"
+        "    uint64_t validArgumentIndices = 0;\n"
+        "    bool argumentIndicesKnown     = false;\n",
+    )],
     # A pool that starts at size 0 and is asked for 0 bytes would create a
     # zero-length (nil) Metal buffer: allocate at least one aligned unit.
     POOL: [(
@@ -41,6 +56,33 @@ EXTRA = {
     )],
 }
 EDITS = [
+    (
+        "    encoder->metalArgBufferEncoder =\n"
+        "        angle::adoptObjCPtr([function newArgumentEncoderWithBufferIndex:bufferIndex]);\n",
+        "    encoder->validArgumentIndices = 0;\n"
+        "    encoder->argumentIndicesKnown = false;\n"
+        "    ANGLE_APPLE_ALLOW_DEPRECATED_BEGIN\n"
+        "    MTLAutoreleasedArgument reflection = nil;\n"
+        "    encoder->metalArgBufferEncoder     = angle::adoptObjCPtr(\n"
+        "        [function newArgumentEncoderWithBufferIndex:bufferIndex reflection:&reflection]);\n"
+        "    if (encoder->metalArgBufferEncoder && reflection && reflection.bufferStructType)\n"
+        "    {\n"
+        "        for (MTLStructMember *member in reflection.bufferStructType.members)\n"
+        "        {\n"
+        "            const NSUInteger count = member.arrayType ? member.arrayType.arrayLength : 1;\n"
+        "            for (NSUInteger i = 0; i < count; ++i)\n"
+        "            {\n"
+        "                const NSUInteger index = member.argumentIndex + i;\n"
+        "                if (index < 64)\n"
+        "                {\n"
+        "                    encoder->validArgumentIndices |= uint64_t{1} << index;\n"
+        "                }\n"
+        "            }\n"
+        "        }\n"
+        "        encoder->argumentIndicesKnown = true;\n"
+        "    }\n"
+        "    ANGLE_APPLE_ALLOW_DEPRECATED_END\n",
+    ),
     (
         "    size_t numBlocksToCopy =\n"
         "        (sizeToCopy + blockConversionInfo.stdSize() - 1) / blockConversionInfo.stdSize();\n"
@@ -87,7 +129,10 @@ EDITS = [
         "        size_t offset            = mLegalizedOffsetedUniformBuffers[bufferIndex].offset();\n"
         "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
         "        mtl::BufferRef mtlBuffer = mLegalizedOffsetedUniformBuffers[bufferIndex].buffer();\n"
-        "        if (!mtlBuffer || !mtlBuffer->get())\n"
+        "        if (!mtlBuffer || !mtlBuffer->get() ||\n"
+        "            (bufferEncoder.argumentIndicesKnown &&\n"
+        "             (actualBufferIdx >= 64 ||\n"
+        "              ((bufferEncoder.validArgumentIndices >> actualBufferIdx) & 1) == 0)))\n"
         "        {\n"
         "            continue;\n"
         "        }\n"
