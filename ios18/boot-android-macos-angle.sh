@@ -144,73 +144,105 @@ ls -la "$(dirname "$EMULATOR")/Frameworks/libEGL.framework"
 
 stage "boot Android headless on ANGLE"
 CPUS=$(sysctl -n hw.ncpu)
-# The refresh-rate experiment: offer the guest a 120 Hz mode and read back what
-# Android reports.
-export UML_GUEST_REFRESH_HZ="${GUEST_REFRESH_HZ:-120}"
-# What the host shows, for comparison with the guest's own screenshot.
-export UML_ANGLE_SCANOUT_DUMP="$OUT/host-frame.bgra"
-set +e
-python3 tools/boot_android.py --instance "$WORK/instance" --emulator "$EMULATOR" \
-  --display offscreen --dpi 320 --audio-output null --cpus "$CPUS" --memory 4G --adb-timeout 1500 --boot-timeout 3000 \
-  > "$OUT/launcher.log" 2>&1 &
-LAUNCHER=$!
 SERIAL=127.0.0.1:5555
-booted=0
-for i in $(seq 1 330); do
-  sleep 10
-  kill -0 "$LAUNCHER" 2>/dev/null || { echo "launcher exited"; break; }
-  adb connect "$SERIAL" >/dev/null 2>&1
-  state=$(adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-  if [ "$state" = 1 ]; then booted=1; echo "boot_completed after about $((i*10)) s"; break; fi
-  [ $((i % 12)) -eq 0 ] && { echo "waiting: $((i*10)) s"; tail -2 "$OUT/launcher.log" | cut -c1-200; }
-done
 # The launcher drops its own ADB session when it has seen the boot; reconnect
 # before every query.
 guest() { adb connect "$SERIAL" >/dev/null 2>&1; adb -s "$SERIAL" "$@"; }
-if guest shell true 2>/dev/null; then
-  guest shell 'getprop | grep -E "boot_completed|opengles|hardware.egl|hardware.vulkan|hwui|ro.build.version.release"' > "$OUT/props.txt" 2>&1
-  guest shell dumpsys SurfaceFlinger > "$OUT/surfaceflinger.txt" 2>&1
-  grep -E "GLES:|activeMode|renderRate|720x1280" "$OUT/surfaceflinger.txt" | head -12
-  guest shell dumpsys display 2>/dev/null | grep -iE "refreshRate|supportedModes|mActiveModeId|fps" | head -12 | cut -c1-400
+export UML_ANGLE_SCANOUT_STATS=1
+RESULT=0
+
+# One measured run. Arguments: name, guest RAM, refresh rate, process memory
+# limit in MiB (0 for none), width, height, density.
+# The limit makes the Mac run size its budgets as a device with that limit
+# does and write a "virtual Jetsam" line when the footprint passes it.
+profile() {
+  local name=$1 memory=$2 hertz=$3 limit=$4 width=$5 height=$6 dpi=$7
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  stage "profile $name: RAM $memory, $hertz Hz, limit ${limit} MiB, ${width}x${height}"
+  export UML_GUEST_REFRESH_HZ=$hertz
+  if [ "$limit" != 0 ]; then export UML_MEMORY_LIMIT_MIB=$limit; else unset UML_MEMORY_LIMIT_MIB; fi
+  local started=$(date +%s)
+  python3 tools/boot_android.py --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
+    --display offscreen --width "$width" --height "$height" --dpi "$dpi" --audio-output null \
+    --cpus "$CPUS" --memory "$memory" --adb-timeout 900 --boot-timeout 1500 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  local booted=0 i state
+  for i in $(seq 1 150); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { echo "launcher exited"; break; }
+    state=$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+    if [ "$state" = 1 ]; then booted=1; echo "$name: boot_completed after about $(( $(date +%s) - started )) s"; break; fi
+  done
   if [ "$booted" = 1 ]; then
-    sleep 45
-    guest shell input keyevent KEYCODE_WAKEUP
-    guest shell am start -a android.settings.SETTINGS >/dev/null 2>&1
-    sleep 30
-    guest shell dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1
-    for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
-      guest shell input swipe 360 1000 360 300 250
-      guest shell input swipe 360 300 360 1000 250
+    # Let the launcher finish provisioning and the first-boot work settle.
+    for i in $(seq 1 30); do
+      [ "$(guest shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r')" = 1 ] && break
+      sleep 5
     done
-    guest shell dumpsys gfxinfo com.android.settings > "$OUT/gfxinfo-settings.txt" 2>&1
-    grep -E "Total frames|Janky frames|percentile|Number" "$OUT/gfxinfo-settings.txt" | head -20
-    guest shell dumpsys SurfaceFlinger --latency-clear >/dev/null 2>&1
-    grep -E "Native display|ANGLE scanout|frames|fps|FPS" "$OUT/launcher.log" | tail -12 | cut -c1-240
-    # Same moment from both sides: what the guest drew and what the host shows.
-    sleep 5
-    guest exec-out screencap -p > "$OUT/guest-frame.png"
-    touch "$OUT/host-frame.bgra.request"
-    guest shell input swipe 360 640 360 660 100
-    sleep 4
-    guest shell input swipe 360 660 360 640 100
-    sleep 4
-    guest exec-out screencap -p > "$OUT/guest-frame-after.png"
-    ls -la "$OUT"
+    sleep 60
+    guest shell 'dumpsys SurfaceFlinger' > "$dir/surfaceflinger.txt" 2>&1
+    grep -E "renderRate|activeMode" "$dir/surfaceflinger.txt" | head -3
+    local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
+    guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; am start -W -a android.settings.SETTINGS" > "$dir/start.txt" 2>&1
+    sleep 20
+    guest exec-out screencap -p > "$dir/settings.png"
+    # 1. Scrolling the Settings list: sixteen slow drags.
+    guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear -enable"
+    guest shell "for n in 1 2 3 4 5 6 7 8; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+    guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-scroll.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-settings.txt" 2>&1
+    # 2. System animations: the notification shade, six times down and up.
+    guest shell "dumpsys gfxinfo com.android.systemui reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear"
+    guest shell "for n in 1 2 3 4 5 6; do cmd statusbar expand-notifications; sleep 1.5; cmd statusbar collapse; sleep 1.5; done"
+    guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-shade.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/gfxinfo-systemui.txt" 2>&1
+    guest shell "dumpsys SurfaceFlinger --timestats -disable"
+    guest exec-out screencap -p > "$dir/after.png"
+    guest shell "cat /proc/meminfo | head -20; cat /proc/swaps; cat /proc/pressure/memory" > "$dir/guest-memory.txt" 2>&1
+    for part in scroll shade; do
+      echo "--- $name / $part: display statistics"
+      grep -E "^(totalFrames|missedFrames|clientCompositionFrames|displayOnTime|statsStart|statsEnd)|averageFPS|layerName|totalTimelineFrames|jankyFrames|sfLongCpuJankyFrames|sfLongGpuJankyFrames|appDeadlineMissedJankyFrames" \
+        "$dir/timestats-$part.txt" | cut -c1-160 | head -40
+    done
+    for package in settings systemui; do
+      echo "--- $name / $package: application frames"
+      grep -E "Total frames rendered|Janky frames|percentile|Number Missed Vsync|Number Slow UI|Number Frame deadline" "$dir/gfxinfo-$package.txt" | head -16
+    done
+    echo "--- $name: guest memory"; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree|some|full" "$dir/guest-memory.txt"
+    local pid=$(pgrep -f uml-darwin-android17 | head -1)
+    echo "--- $name: host process"; [ -z "$pid" ] || top -l 1 -pid "$pid" -stats pid,mem,cpu,threads | tail -2
+    guest logcat -d > "$dir/logcat.txt" 2>&1
+    echo "$name: fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$dir/logcat.txt")"
+    grep -E "FATAL EXCEPTION|Fatal signal|lowmemorykiller|lmkd.*[Kk]ill" "$dir/logcat.txt" | cut -c1-200 | head -12
+  else
+    echo "RESULT: profile $name did not reach boot_completed"; RESULT=1
   fi
-  guest logcat -d > "$OUT/logcat.txt" 2>&1
-  echo "fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$OUT/logcat.txt")"
-  grep -E "FATAL EXCEPTION|Fatal signal|EGL_BAD|GL error" "$OUT/logcat.txt" | cut -c1-220 | sort | uniq -c | sort -rn | head -20
-fi
-kill -0 "$LAUNCHER" 2>/dev/null && echo "emulator still running at the end of the test" || echo "EMULATOR EXITED DURING THE TEST"
-grep -n "Darwin host fault" "$OUT/launcher.log" | head -5
-kill -INT "$LAUNCHER" 2>/dev/null; sleep 20; kill -9 "$LAUNCHER" 2>/dev/null
-pkill -9 -f uml-darwin-android17 2>/dev/null
+  kill -0 "$launcher" 2>/dev/null && echo "$name: emulator still running at the end" || { echo "$name: EMULATOR EXITED DURING THE TEST"; RESULT=1; }
+  echo "--- $name: host lines"
+  grep -E "virtual Jetsam|memory limit|GPU budget|short of|Darwin host fault" "$dir/launcher.log" | cut -c1-220 | sort | uniq -c | head -12
+  grep -E "ANGLE scanout" "$dir/launcher.log" | sed 's/^.*ANGLE scanout/ANGLE scanout/' | grep -v "^ANGLE scanout stats" | sort | uniq -c
+  grep -E "ANGLE scanout stats" "$dir/launcher.log" | sed 's/^.*ANGLE scanout/ANGLE scanout/' > "$dir/host-frames.txt"
+  echo "host frame windows: $(wc -l < "$dir/host-frames.txt")"; sort -t'(' -k2 -n -r "$dir/host-frames.txt" | head -8
+  kill -INT "$launcher" 2>/dev/null; sleep 20; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null
+  adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"
+  sleep 5
+}
+
+set +e
+# The display a 120 Hz phone gives the guest, with no memory limit.
+profile full 4G 120 0 720 1280 320
+# An iPhone 11-class device: 60 Hz, 828x1792, and about 2.1 GiB for the whole
+# process (the figure assumed for a 4 GiB phone). First with the guest RAM the
+# unchanged rule gives there, then with the smaller guest of the low-memory rule.
+profile limited-1408 1408M 60 2098 828 1792 326
+profile limited-1024 1024M 60 2098 828 1792 326
 set -e
-tail -15 "$OUT/launcher.log" | cut -c1-240
-grep -iE "renderer=|Virgl|ANGLE|GPU|capset" "$OUT/launcher.log" | sort | uniq -c | sort -rn | head -30 | cut -c1-240
-if [ "$booted" = 1 ]; then
-  echo "RESULT: Android reached boot_completed on the ANGLE path (macOS host)."
+if [ "$RESULT" = 0 ]; then
+  echo "RESULT: Android reached boot_completed on the ANGLE path in every profile (macOS host)."
 else
-  echo "RESULT: Android did not reach boot_completed on the ANGLE path."
+  echo "RESULT: at least one profile failed."
   exit 1
 fi
