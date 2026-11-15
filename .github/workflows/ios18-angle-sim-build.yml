@@ -43,6 +43,7 @@ jobs:
           sed -i '' 's/^          //' .gclient
           gclient sync --no-history --shallow --nohooks -j 6
           gclient runhooks
+          python3 ../ci/ios18/angle_ubo_patch.py angle
           python3 ../ci/ios18/angle_sim_patch.py angle
           du -sh angle
       - name: Build ANGLE for the iOS 18 Simulator
