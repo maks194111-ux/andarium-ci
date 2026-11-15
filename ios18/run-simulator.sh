@@ -60,7 +60,15 @@ done
 /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "$APP/Info.plist" || true
 BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
 for framework in "$APP"/Frameworks/*.framework; do codesign --force --sign - "$framework" || exit 1; done
-codesign --force --sign - "$APP" || exit 1
+cat > "$WORK/sim.entitlements" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>application-identifier</key><string>SIMULATOR0.$BUNDLE</string>
+<key>keychain-access-groups</key><array><string>SIMULATOR0.$BUNDLE</string></array>
+</dict></plist>
+ENT
+codesign --force --sign - --entitlements "$WORK/sim.entitlements" "$APP" || exit 1
 
 stage "iPhone 11 on iOS 18"
 xcrun simctl list runtimes
@@ -74,7 +82,7 @@ xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
 
 shot() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 && echo "screenshot $1"; }
 crashes() { find ~/Library/Logs/DiagnosticReports -name 'Andarium*' -newer "$WORK/app" 2>/dev/null; }
-alive() { xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "$BUNDLE"; }
+alive() { pgrep -f "Andarium.app/Andarium" >/dev/null; }
 
 stage "launch 1: as a person would (Home screen)"
 xcrun simctl launch --console-pty "$UDID" "$BUNDLE" > "$OUT/console-home.txt" 2>&1 &
@@ -89,14 +97,17 @@ LOGPID=$!
 [ -n "$MEMORY_MIB" ] && export SIMCTL_CHILD_KERNARIUM_GUEST_MEMORY_MIB="$MEMORY_MIB" && echo "guest RAM stated: $MEMORY_MIB MiB"
 SIMCTL_CHILD_ANDARIUM_START=normal SIMCTL_CHILD_ANDARIUM_STATS=1 \
   xcrun simctl launch --console-pty "$UDID" "$BUNDLE" > "$OUT/console-start.txt" 2>&1 &
-elapsed=0; index=2
+began=$(date +%s); elapsed=0; index=2
 while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
-  sleep 30; elapsed=$((elapsed + 30))
+  sleep 25; elapsed=$(( $(date +%s) - began ))
   shot "$(printf '%02d' "$index")-start-${elapsed}s"; index=$((index + 1))
   echo "t=${elapsed}s console lines=$(wc -l < "$OUT/console-start.txt" | tr -d ' ') last stats: $(grep 'Andarium stats' "$OUT/console-start.txt" | tail -1)"
-  if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; break; fi
+  grep -a 'Andarium: boot reached' "$OUT/console-start.txt" | tail -1
+  if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; ENDED=1; break; fi
 done
-alive && echo "RESULT start: app still running after ${elapsed}s"
+[ -z "${ENDED:-}" ] && echo "RESULT start: app still running after ${elapsed}s"
+host_memory() { vm_stat | awk '/Pages free|Pages inactive|Pages wired|Pages occupied by compressor|Swapouts/ {printf "%s %s; ", $0, ""}'; echo; }
+echo "host memory: $(host_memory)"; sysctl -n vm.swapusage
 kill "$LOGPID" 2>/dev/null
 
 stage "what the app printed"
