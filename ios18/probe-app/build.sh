@@ -22,3 +22,5 @@ ls -la "$OUT/probe.apk"
 NDK=${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}
 "$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang -O2 -o "$OUT/micro" "$HERE/native/micro.c"
 ls -la "$OUT/micro"
+"$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang -O2 -o "$OUT/gltext" "$HERE/native/gltext.c" -lEGL -lGLESv3
+ls -la "$OUT/gltext"
