@@ -93,5 +93,26 @@ replace("\t    base < DARWIN_UML_NATIVE_LINK_ADDRESS) {\n\t\tmunmap(reserved, re
         "\t\t\treservation, reinterpret_cast<void *>(geometry.window_start),\n"
         "\t\t\tfirst_answer, reserved);\n"
         "\t\tmunmap(reserved, reservation);\n")
+# The address the geometry names is a multiple of the guest's 4 KiB page, and
+# an Apple host maps whole 16 KiB pages: it answers with the next host page,
+# a few kibibytes higher.  That answer holds the window as well as the exact
+# one, so it is kept instead of being handed back.
+replace("\t\tmunmap(reserved, reservation);\n"
+        "\t\treserved = MAP_FAILED;\n"
+        "\t\tif (placement != WindowPlacement::exact) {\n",
+        "\t\tconst auto first_where = reinterpret_cast<std::uintptr_t>(reserved);\n"
+        "\t\tconst bool beside = placement != WindowPlacement::exact &&\n"
+        "\t\t\t(first_where & (DARWIN_UML_GUEST_PAGE_SIZE - 1U)) == 0U &&\n"
+        "\t\t\tfirst_where > geometry.window_start &&\n"
+        "\t\t\tfirst_where - geometry.window_start < 0x10000U;\n"
+        "\t\tif (beside) {\n"
+        "\t\t\tstd::fprintf(stderr,\n"
+        "\t\t\t\t\"UML: window placed at %p, the host page after %p\\n\",\n"
+        "\t\t\t\treserved, reinterpret_cast<void *>(geometry.window_start));\n"
+        "\t\t} else {\n"
+        "\t\t\tmunmap(reserved, reservation);\n"
+        "\t\t\treserved = MAP_FAILED;\n"
+        "\t\t}\n"
+        "\t\tif (!beside && placement != WindowPlacement::exact) {\n")
 path.write_text(text)
 print("address window: failures are explained; higher addresses are tried before giving up")
