@@ -1,0 +1,72 @@
+name: Andarium Google image simulator compatibility
+run-name: Google image iPadOS 27 and iOS 18 phones, app ${{ inputs.app_run }}
+on:
+  workflow_dispatch:
+    inputs:
+      app_run:
+        description: Corrected device app build
+        required: true
+      angle_sim_run:
+        description: ANGLE simulator build
+        required: true
+        default: "43700644337"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  simulator:
+    if: github.event.repository.private == false
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        include:
+          - { device: iPhone-11, ios: "18", runner: macos-15, memory: "1408" }
+          - { device: iPhone-12, ios: "18", runner: macos-15, memory: "1408" }
+          - { device: iPhone-13, ios: "18", runner: macos-15, memory: "1408" }
+          - { device: iPhone-14, ios: "18", runner: macos-15, memory: "2048" }
+          - { device: iPhone-15, ios: "18", runner: macos-15, memory: "2048" }
+          - { device: iPhone-16-Pro, ios: "18", runner: macos-15, memory: "3072" }
+          - { device: iPad-Pro-auto, ios: "27", runner: xcode-27, memory: "3072" }
+    name: ${{ matrix.device }} iOS ${{ matrix.ios }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - name: Fetch public test sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+      - uses: actions/download-artifact@v4
+        with:
+          name: andarium-ios18-app-without-system-image
+          run-id: ${{ inputs.app_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/app-download
+      - uses: actions/download-artifact@v4
+        with:
+          name: angle-metal-simulator
+          run-id: ${{ inputs.angle_sim_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/angle-sim-download
+      - name: Check Google Android boot and continued execution
+        shell: bash
+        env:
+          IMAGE_KIND: gapps
+          GAPPS_IPA_URL: ${{ secrets.GAPPS_IPA_URL }}
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
+          bash ci/ios18/run-simulator.sh \
+            "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
+            "$RUNNER_TEMP" 420 "$RUNNER_TEMP/angle-sim" \
+            "${{ matrix.memory }}" "${{ matrix.device }}" "${{ matrix.ios }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-${{ matrix.device }}-ios${{ matrix.ios }}
+          path: ${{ runner.temp }}/simulator-report
+          retention-days: 14
