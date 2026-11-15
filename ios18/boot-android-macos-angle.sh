@@ -215,6 +215,39 @@ profile() {
     for package in settings systemui; do
       python3 "$HERE/framestats.py" "$name / $package" "$dir/framestats-$package.txt" || true
     done
+    # 3. Where the frame's time is: processor time per thread, then the render
+    #    thread's system calls with their durations, both during a scroll.
+    guest shell "am start -W -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 5
+    cat > "$dir/threads.sh" <<'GUEST'
+for name in com.android.settings surfaceflinger; do
+  for pid in $(pidof $name); do
+    for task in /proc/$pid/task/*; do
+      echo "$name $(cat $task/comm)|${task##*/} $(cat $task/schedstat)"
+    done
+  done
+done
+for pid in $(pgrep -f 'composer|allocator|kworker|virtio'); do
+  echo "other $(cat /proc/$pid/comm)|$pid $(cat /proc/$pid/schedstat)"
+done
+GUEST
+    guest push "$dir/threads.sh" /data/local/tmp/threads.sh >/dev/null 2>&1
+    guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null"
+    guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-before.txt" 2>&1
+    local split_start=$(date +%s)
+    guest shell "for n in 1 2 3 4 5 6; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+    local split_seconds=$(( $(date +%s) - split_start ))
+    guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-after.txt" 2>&1
+    local split_frames=$(guest shell "dumpsys gfxinfo com.android.settings" | tr -d '\r' | awk '/Total frames rendered/ {print $4}')
+    guest root >/dev/null 2>&1; sleep 4
+    local render=$(guest shell 'pid=$(pidof com.android.settings); for task in /proc/$pid/task/*; do [ "$(cat $task/comm)" = RenderThread ] && echo ${task##*/}; done' | tr -d '\r' | head -1)
+    echo "render thread: $render; strace: $(guest shell 'command -v strace; id -u' | tr '\r\n' '  ')"
+    guest shell "timeout 14 strace -c -p $render -o /data/local/tmp/strace-count.txt >/dev/null 2>&1 &
+      sleep 1; for n in 1 2 3; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done; sleep 8"
+    guest shell "cat /data/local/tmp/strace-count.txt" > "$dir/strace-count.txt" 2>&1
+    guest shell "timeout 10 strace -T -p $render -o /data/local/tmp/strace-times.txt >/dev/null 2>&1 &
+      sleep 1; for n in 1 2; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done; sleep 6"
+    guest shell "cat /data/local/tmp/strace-times.txt" > "$dir/strace-times.txt" 2>&1
+    python3 "$HERE/split.py" "$name" "$dir/threads-before.txt" "$dir/threads-after.txt" "${split_frames:-0}" "$split_seconds" "$dir/strace-count.txt" "$dir/strace-times.txt" || true
     guest shell "top -b -n 1 -H -m 25 -o PID,TID,%CPU,CMD,NAME" > "$dir/guest-top.txt" 2>&1
     guest shell "getprop | grep -iE 'hwui|renderer|debug.sf|ro.surface_flinger|vsync|ro.hardware.egl|ro.opengles|zygote|dalvik.vm.usejit|dalvik.vm.dex2oat-filter|pm.dexopt'" > "$dir/guest-props.txt" 2>&1
     echo "--- $name: guest properties"; cut -c1-150 "$dir/guest-props.txt" | head -60
@@ -243,6 +276,10 @@ profile() {
 set +e
 # The display a 120 Hz phone gives the guest, with no memory limit.
 profile full 4G 120 0 720 1280 320
+if [ "${PROFILES:-all}" = first ]; then
+  [ "$RESULT" = 0 ] && { echo "RESULT: first profile completed."; exit 0; }
+  echo "RESULT: the first profile failed."; exit 1
+fi
 # An iPhone 11-class device: 60 Hz, 828x1792, and about 2.1 GiB for the whole
 # process (the figure assumed for a 4 GiB phone). First with the guest RAM the
 # unchanged rule gives there, then with the smaller guest of the low-memory rule.
