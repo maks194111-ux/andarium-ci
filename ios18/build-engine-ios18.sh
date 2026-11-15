@@ -77,6 +77,7 @@ meson install -C "$BUILD/epoxy"
 MESA="$SOURCES/mesa"; [ -d "$MESA" ] || MESA="$SOURCES/Mesa"
 install -m 0644 "$MESA/src/gallium/drivers/zink/zink_interop_public.h" "$PREFIX/include/GL/"
 install -m 0644 "$MESA/include/GL/mesa_glinterop.h" "$PREFIX/include/GL/"
+python3 "$HERE/virgl_gles_patch.py" "$SOURCES/virglrenderer"
 meson setup "$BUILD/virgl" "$SOURCES/virglrenderer" --prefix "$PREFIX" --libdir lib \
   --buildtype release --cross-file "$BUILD/virgl.cross" --wrap-mode=nodownload \
   -Ddefault_library=static -Dtests=false -Dcheck-gl-errors=false -Dvideo=false \
