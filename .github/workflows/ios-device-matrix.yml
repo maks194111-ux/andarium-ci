@@ -10,6 +10,10 @@ on:
         description: ANGLE simulator build
         required: true
         default: "43700644337"
+      metal_validation:
+        description: Enable the app-side Metal validation layer (1) or not (0)
+        required: false
+        default: "0"
 permissions:
   contents: read
   actions: read
@@ -56,6 +60,7 @@ jobs:
         shell: bash
         env:
           IMAGE_KIND: gapps
+          METAL_VALIDATION: ${{ inputs.metal_validation }}
           GAPPS_IPA_URL: ${{ secrets.GAPPS_IPA_URL }}
         run: |
           set -euo pipefail
