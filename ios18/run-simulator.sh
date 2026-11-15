@@ -17,6 +17,8 @@ SECONDS_TO_WATCH=${3:-420}
 # GPU for a feature family the Simulator never reports and then offers no
 # OpenGL ES 3; a real A13 reports it. Everything else stays the device code.
 ANGLE_SIM=${4:-}
+# Optional: guest RAM in MiB, to start Android at the size a 4 GB phone gets.
+MEMORY_MIB=${5:-}
 stage() { echo; echo "===== STAGE: $* ====="; }
 
 stage "host"
@@ -84,6 +86,7 @@ tail -30 "$OUT/console-home.txt"
 stage "launch 2: start Android"
 xcrun simctl spawn "$UDID" log stream --style compact --predicate 'process == "Andarium"' > "$OUT/oslog.txt" 2>&1 &
 LOGPID=$!
+[ -n "$MEMORY_MIB" ] && export SIMCTL_CHILD_KERNARIUM_GUEST_MEMORY_MIB="$MEMORY_MIB" && echo "guest RAM stated: $MEMORY_MIB MiB"
 SIMCTL_CHILD_ANDARIUM_START=normal SIMCTL_CHILD_ANDARIUM_STATS=1 \
   xcrun simctl launch --console-pty "$UDID" "$BUNDLE" > "$OUT/console-start.txt" 2>&1 &
 elapsed=0; index=2
