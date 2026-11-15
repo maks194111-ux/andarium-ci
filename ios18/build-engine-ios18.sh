@@ -20,6 +20,8 @@ for tool in autoconf automake libtool pkg-config ninja cmake; do
 done
 
 cd "$UPSTREAM"
+stage "test native address reservation fallback"
+python3 "$HERE/test_window_patch.py" "$UPSTREAM"
 stage "retarget build system"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM"
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
