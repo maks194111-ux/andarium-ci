@@ -6,6 +6,9 @@ on:
       app_run:
         description: Run id of the app build that holds the app artifact
         required: true
+      angle_sim_run:
+        description: Run id of the ANGLE Simulator build
+        required: true
       seconds:
         description: How long to watch the Android start
         default: "420"
@@ -32,10 +35,17 @@ jobs:
           run-id: ${{ inputs.app_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/app-download
+      - uses: actions/download-artifact@v4
+        with:
+          name: angle-metal-simulator
+          run-id: ${{ inputs.angle_sim_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/angle-sim-download
       - name: Run on the iPhone 11 Simulator with iOS 18
         shell: bash
         run: |
-          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}"
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
+          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
