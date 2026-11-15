@@ -93,7 +93,10 @@ echo "device: $DEVICE_TYPE, runtime $RUNTIME, bundle $BUNDLE"
 xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
 
 shot() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 && echo "screenshot $1"; }
-crashes() { find ~/Library/Logs/DiagnosticReports -name 'Andarium*' -newer "$WORK/app" 2>/dev/null; }
+crashes() {
+  find ~/Library/Logs/DiagnosticReports \
+    \( -name 'Andarium*' -o -name 'SimMetalHost*' \) -newer "$WORK/app" 2>/dev/null
+}
 alive() { pgrep -f "Andarium.app/Andarium" >/dev/null; }
 
 stage "launch 1: as a person would (Home screen)"
@@ -159,6 +162,11 @@ except Exception as error:
 PY
 done
 [ -z "$(crashes)" ] && echo "no crash report"
+# A lost SimMetalHost connection terminates the app but is not evidence of
+# the same fault on a physical device. Preserve the simulator service's side.
+log show --last 15m --style compact \
+  --predicate 'process == "SimMetalHost"' 2>/dev/null \
+  | tail -2000 > "$OUT/simulator-metal-host.txt"
 ALIVE=no; alive && ALIVE=yes
 python3 "$HERE/simulator_check.py" result "$OUT" --alive "$ALIVE"
 RESULT=$?
