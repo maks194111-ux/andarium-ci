@@ -16,11 +16,31 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: andarium-angle-boot
+  group: andarium-angle-boot-${{ inputs.profiles }}
   cancel-in-progress: true
 jobs:
+  probe:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Build the debuggable probe application
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+          bash ci/ios18/probe-app/build.sh "$RUNNER_TEMP/probe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-app
+          path: ${{ runner.temp }}/probe/probe.apk
+          retention-days: 30
   boot:
     if: github.event.repository.private == false
+    needs: probe
     runs-on: xcode-27
     timeout-minutes: 240
     steps:
@@ -42,6 +62,10 @@ jobs:
           run-id: ${{ inputs.angle_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/angle-download
+      - uses: actions/download-artifact@v4
+        with:
+          name: probe-app
+          path: ${{ runner.temp }}/probe
       - name: Install isolated build-only Python tools
         shell: bash
         run: |
