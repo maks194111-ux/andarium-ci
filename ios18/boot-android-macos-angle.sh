@@ -262,9 +262,11 @@ GUEST
       for setting in "$@"; do guest shell "setprop ${setting%%=*} ''"; done
     }
     variant same
-    variant noerror debug.mesa.no.error=true mesa.no.error=true
-    variant glthread debug.mesa.glthread=true mesa.glthread=true
-    variant both debug.mesa.no.error=true debug.mesa.glthread=true mesa.no.error=true mesa.glthread=true
+    # Mesa on Android reads option NAME from the property
+    # debug.mesa.<name in lower case with dots for underscores>.
+    variant noerror debug.mesa.mesa.no.error=true
+    variant glthread debug.mesa.mesa.glthread=true debug.mesa.mesa.glthread.driver=true
+    variant both debug.mesa.mesa.no.error=true debug.mesa.mesa.glthread=true debug.mesa.mesa.glthread.driver=true
     guest shell 'ls /vendor/lib64/egl /vendor/lib64/dri 2>/dev/null; getprop | grep -i mesa; strings /vendor/lib64/dri/*.so 2>/dev/null | grep -m3 -iE "^Mesa [0-9]|mesa [0-9]+\.[0-9]+\.[0-9]"' 2>&1 | head -30
     guest shell "top -b -n 1 -H -m 25 -o PID,TID,%CPU,CMD,NAME" > "$dir/guest-top.txt" 2>&1
     guest shell "getprop | grep -iE 'hwui|renderer|debug.sf|ro.surface_flinger|vsync|ro.hardware.egl|ro.opengles|zygote|dalvik.vm.usejit|dalvik.vm.dex2oat-filter|pm.dexopt'" > "$dir/guest-props.txt" 2>&1
