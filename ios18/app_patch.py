@@ -42,8 +42,14 @@ text = phase.sub("{\n", text)
 project.write_text(text)
 
 edit("Andarium/Andarium/Live/AppEntry.swift", [
+    # This runtime draws through ANGLE on Metal and has no chip requirement,
+    # so the screen that refuses older chips can never be shown.
     ("return MTLCreateSystemDefaultDevice()?.supportsFamily(.metal4) ?? false",
-     "return MTLCreateSystemDefaultDevice() != nil"),
+     "return true"),
+])
+# The title names the build, so a screenshot shows which package is running.
+edit("Andarium/Andarium/Shared/HomeView.swift", [
+    ('.navigationTitle("Andarium")', '.navigationTitle("Andarium 11 (iOS 18)")'),
 ])
 edit("Andarium/Andarium/Live/GuestLayer.swift", [
     (".containerCornerOffset(SceneCoverage.cornerOffsetEdges(coversScreen: coversScreen), sizeToFit: true)",
