@@ -56,6 +56,56 @@ PATCHES = {
         "        }\n"
         "        encoder->argumentIndicesKnown = true;\n",
     ), (
+        # The Simulator's Metal service on a macOS 15 host cannot find the
+        # arguments of an encoder made from the function ("Failed to find
+        # buffer argument (0)") and aborts. Describe the same pointer layout
+        # explicitly instead; keep it only if the encoded size is identical.
+        "    ANGLE_APPLE_ALLOW_DEPRECATED_END\n"
+        "    if (encoder->metalArgBufferEncoder)\n",
+        "    if (encoder->metalArgBufferEncoder && reflection && reflection.bufferStructType)\n"
+        "    {\n"
+        "        NSMutableArray<MTLArgumentDescriptor *> *arguments = [NSMutableArray array];\n"
+        "        bool describable = true;\n"
+        "        for (MTLStructMember *member in reflection.bufferStructType.members)\n"
+        "        {\n"
+        "            MTLArgumentDescriptor *argument = [MTLArgumentDescriptor argumentDescriptor];\n"
+        "            argument.index                  = member.argumentIndex;\n"
+        "            argument.access                 = MTLBindingAccessReadOnly;\n"
+        "            if (member.dataType == MTLDataTypePointer)\n"
+        "            {\n"
+        "                argument.dataType = MTLDataTypePointer;\n"
+        "            }\n"
+        "            else if (member.dataType == MTLDataTypeArray && member.arrayType &&\n"
+        "                     member.arrayType.elementType == MTLDataTypePointer)\n"
+        "            {\n"
+        "                argument.dataType    = MTLDataTypePointer;\n"
+        "                argument.arrayLength = member.arrayType.arrayLength;\n"
+        "            }\n"
+        "            else\n"
+        "            {\n"
+        "                describable = false;\n"
+        "                break;\n"
+        "            }\n"
+        "            [arguments addObject:argument];\n"
+        "        }\n"
+        "        if (describable && arguments.count > 0)\n"
+        "        {\n"
+        "            angle::ObjCPtr<id<MTLArgumentEncoder>> described =\n"
+        "                angle::adoptObjCPtr([function.device newArgumentEncoderWithArguments:arguments]);\n"
+        "            const NSUInteger fromFunction = encoder->metalArgBufferEncoder.get().encodedLength;\n"
+        "            const NSUInteger fromLayout   = described ? described.get().encodedLength : 0;\n"
+        "            NSLog(@\"Andarium ANGLE UBO described encoder %@: %lu arguments, length %lu (function %lu)\",\n"
+        "                  function.name, (unsigned long)arguments.count, (unsigned long)fromLayout,\n"
+        "                  (unsigned long)fromFunction);\n"
+        "            if (described && fromLayout == fromFunction)\n"
+        "            {\n"
+        "                encoder->metalArgBufferEncoder = std::move(described);\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "    ANGLE_APPLE_ALLOW_DEPRECATED_END\n"
+        "    if (encoder->metalArgBufferEncoder)\n",
+    ), (
         "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
         "        if (offset >= mtlBuffer->size())\n"
         "        {\n"
