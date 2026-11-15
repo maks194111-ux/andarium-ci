@@ -94,7 +94,7 @@ xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
 
 shot() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 && echo "screenshot $1"; }
 crashes() {
-  find ~/Library/Logs/DiagnosticReports \
+  find ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports \
     \( -name 'Andarium*' -o -name 'SimMetalHost*' \) -newer "$WORK/app" 2>/dev/null
 }
 alive() { pgrep -f "Andarium.app/Andarium" >/dev/null; }
@@ -116,6 +116,12 @@ began=$(date +%s); elapsed=0; index=2
 while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   sleep 25; elapsed=$(( $(date +%s) - began ))
   shot "$(printf '%02d' "$index")-start-${elapsed}s"; index=$((index + 1))
+  {
+    echo "elapsed=$elapsed"
+    ps -axo pid=,rss=,comm= | grep -E 'Andarium.app/Andarium|SimMetalHost|Simulator.app'
+    vm_stat | grep -E 'Pages free|Pages wired|Pages occupied by compressor|Swapouts'
+    sysctl -n vm.swapusage
+  } >> "$OUT/host-resources.txt"
   echo "t=${elapsed}s console lines=$(wc -l < "$OUT/console-start.txt" | tr -d ' ') last stats: $(grep 'Andarium stats' "$OUT/console-start.txt" | tail -1)"
   grep -a 'Andarium: boot reached' "$OUT/console-start.txt" | tail -1
   if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; ENDED=1; break; fi
