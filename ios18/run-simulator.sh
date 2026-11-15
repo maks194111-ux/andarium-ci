@@ -13,6 +13,10 @@ APPZIP=$1
 WORK=$(cd "$2" && pwd)
 OUT="$WORK/simulator-report"; mkdir -p "$OUT"
 SECONDS_TO_WATCH=${3:-420}
+# Optional: ANGLE built for the Simulator. The device build of ANGLE asks the
+# GPU for a feature family the Simulator never reports and then offers no
+# OpenGL ES 3; a real A13 reports it. Everything else stays the device code.
+ANGLE_SIM=${4:-}
 stage() { echo; echo "===== STAGE: $* ====="; }
 
 stage "host"
@@ -30,10 +34,20 @@ mv "$WORK/upstream-ipa/Payload/Andarium.app/andarium-system" "$APP/andarium-syst
 rm -rf "$WORK/upstream.ipa" "$WORK/upstream-ipa"
 ls -la "$APP/andarium-system" "$APP/andarium-system/guest"
 
+if [ -n "$ANGLE_SIM" ]; then
+  stage "graphics library: the Simulator build of the same ANGLE sources"
+  for framework in libEGL libGLESv2; do
+    rm -rf "$APP/Frameworks/$framework.framework"
+    cp -R "$ANGLE_SIM/iossim/$framework.framework" "$APP/Frameworks/"
+    xcrun vtool -show-build "$APP/Frameworks/$framework.framework/$framework" | grep -E 'platform|minos' | tr -s ' \n' ' '; echo
+  done
+fi
+
 stage "retag the device binaries for the Simulator"
 SDKV=$(xcrun --sdk iphonesimulator --show-sdk-version)
 for binary in "$APP/Andarium" "$APP"/Frameworks/*.framework/*; do
   file "$binary" | grep -q Mach-O || continue
+  if xcrun vtool -show-build "$binary" | grep -q IOSSIMULATOR; then echo "$(basename "$binary"): already a Simulator binary"; continue; fi
   xcrun vtool -set-build-version iossim 18.0 "$SDKV" -replace -output "$binary.sim" "$binary" || exit 1
   mv "$binary.sim" "$binary"
   echo "$(basename "$binary"): $(xcrun vtool -show-build "$binary" | grep -E 'platform|minos' | tr -s ' \n' ' ')"
