@@ -194,6 +194,25 @@ profile() {
       sleep 5
     done
     sleep 60
+    if [ "${BENCH:-0}" = 1 ]; then
+      # Processor-bound work in one process: how fast does each engine run
+      # code that is already hot? "user" is processor time, not waiting.
+      guest shell 'cd /data/local/tmp; dd if=/dev/urandom of=blob bs=1048576 count=24 2>/dev/null; ls -la blob' 2>&1 | tail -1
+      for round in 1 2; do
+        echo "--- $name bench round $round: shell loop of 1500000 steps"
+        guest shell 'time sh -c "i=0; while [ \$i -lt 1500000 ]; do i=\$((i+1)); done"' 2>&1 | tr -d '\r' | grep -E 'real|user|sys' | tr '\n' ' '; echo
+        echo "--- $name bench round $round: gzip of 24 MiB"
+        guest shell 'cd /data/local/tmp; time gzip -c blob > /dev/null' 2>&1 | tr -d '\r' | grep -E 'real|user|sys' | tr '\n' ' '; echo
+        echo "--- $name bench round $round: sort of 400000 lines"
+        guest shell 'cd /data/local/tmp; [ -f lines ] || od -An -tx8 -w8 blob | head -400000 > lines; time sort lines > /dev/null' 2>&1 | tr -d '\r' | grep -E 'real|user|sys' | tr '\n' ' '; echo
+        echo "--- $name bench round $round: awk arithmetic, 3000000 steps"
+        guest shell 'time awk "BEGIN { s = 0; for (i = 0; i < 3000000; i++) s += i % 7 * 3; print s }"' 2>&1 | tr -d '\r' | grep -E 'real|user|sys|^[0-9]' | tr '\n' ' '; echo
+      done
+      kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+      pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+      rm -rf "$WORK/instance-$name"; sleep 5
+      return 0
+    fi
     guest shell 'dumpsys SurfaceFlinger' > "$dir/surfaceflinger.txt" 2>&1
     grep -E "renderRate|activeMode" "$dir/surfaceflinger.txt" | head -3
     local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
@@ -331,6 +350,12 @@ GUEST
 }
 
 set +e
+if [ "${PROFILES:-all}" = bench ]; then
+  export BENCH=1
+  profile bench-interpreter 4G 60 0 720 1280 320 gadgets
+  profile bench-jit 4G 60 0 720 1280 320 jit
+  echo "RESULT: engine benchmark finished."; exit 0
+fi
 # The display a 120 Hz phone gives the guest, with no memory limit.
 profile full 4G 120 0 720 1280 320
 if [ "${PROFILES:-all}" = tier ]; then
