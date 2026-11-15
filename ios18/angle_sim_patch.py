@@ -30,6 +30,14 @@ PATCHES = {
         "        mNativeCaps.uniformBufferOffsetAlignment =\n"
         "            16;",
     )],
+    # Simulator only: ANGLE turns texture swizzle off for every Simulator, so
+    # formats the Android graphics bridge stores swizzled (A8 glyph atlases
+    # held as R8) sample the wrong channel and text disappears. Use the
+    # Metal swizzle whenever the Simulator's device reports the GPU family.
+    "src/libANGLE/renderer/metal/DisplayMtl.mm#swizzle": [(
+        "                            supportsEitherGPUFamily(3, 2) && !isSimulator);\n",
+        "                            supportsEitherGPUFamily(3, 2));\n",
+    )],
     # Simulator only: name any argument-buffer binding the Simulator's Metal
     # service would refuse, and leave it out, instead of losing the service.
     "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm": [(
@@ -47,7 +55,7 @@ PATCHES = {
 
 def apply(root: Path):
     for relative, edits in PATCHES.items():
-        path = root / relative
+        path = root / relative.split("#")[0]
         text = path.read_text()
         for old, new in edits:
             if text.count(old) != 1:
