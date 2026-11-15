@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+name: Simulator Metal service probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - name: Find the code behind AppleParavirtArgumentEncoder
+        shell: bash
+        run: |
+          set +e
+          sw_vers; xcodebuild -version
+          mkdir -p "$RUNNER_TEMP/host"
+          roots="/Library/Developer/CoreSimulator /System/Library/Extensions /System/Library/PrivateFrameworks /System/Library/Frameworks/Metal.framework $(xcode-select -p)/Platforms/iPhoneSimulator.platform"
+          for root in $roots; do
+            find "$root" -type f -size +20k -perm -u+x 2>/dev/null
+            find "$root" -type f -size +20k -name '*.dylib' 2>/dev/null
+          done | sort -u > "$RUNNER_TEMP/candidates.txt"
+          # The dyld shared cache hides system libraries; search loose files and the cache list.
+          while read -r f; do
+            if grep -q -a 'AppleParavirtArgumentEncoder' "$f" 2>/dev/null; then
+              echo "HIT $f"; cp "$f" "$RUNNER_TEMP/host/$(echo "$f" | tr '/' '_')"
+            fi
+          done < "$RUNNER_TEMP/candidates.txt"
+          ps -axo pid,comm | grep -i simmetal
+          find / -name 'SimMetalHost*' -not -path '*/proc/*' 2>/dev/null | head
+          for f in "$RUNNER_TEMP"/host/*; do
+            echo "== $f"; strings -a "$f" | grep -n -i -B3 -A40 'setBuffer:offset:atIndex' | head -200
+          done
+          true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sim-metal-host
+          path: ${{ runner.temp }}/host
+          retention-days: 7
