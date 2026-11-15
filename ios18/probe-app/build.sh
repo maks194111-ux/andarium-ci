@@ -19,3 +19,6 @@ keytool -genkeypair -keystore "$WORK/key.jks" -storepass android -keypass androi
   --out "$OUT/probe.apk" "$WORK/aligned.apk"
 "$TOOLS/aapt2" dump badging "$OUT/probe.apk" | grep -E "package|debuggable"
 ls -la "$OUT/probe.apk"
+NDK=${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}
+"$NDK"/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang -O2 -o "$OUT/micro" "$HERE/native/micro.c"
+ls -la "$OUT/micro"
