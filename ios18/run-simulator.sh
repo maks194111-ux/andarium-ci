@@ -10,6 +10,7 @@
 # its GPU driver, or signing. Android comes from upstream's public release.
 set -uo pipefail
 APPZIP=$1
+HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=$(cd "$2" && pwd)
 OUT="$WORK/simulator-report"; mkdir -p "$OUT"
 SECONDS_TO_WATCH=${3:-420}
@@ -27,14 +28,30 @@ stage() { echo; echo "===== STAGE: $* ====="; }
 stage "host"
 sw_vers; sysctl -n hw.ncpu hw.memsize; xcodebuild -version
 
-stage "app with the public Android image"
+stage "verify exact runtime and device before downloading the image"
+selection=$(python3 "$HERE/simulator_check.py" select "$OUT" --major "$IOS_MAJOR" --device "$DEVICE_TYPE")
+selection_status=$?
+if [ "$selection_status" != 0 ]; then
+  echo "RESULT: $selection"
+  exit "$selection_status"
+fi
+read -r RUNTIME DEVICE_IDENTIFIER <<< "$selection"
+echo "Selected $DEVICE_IDENTIFIER on $RUNTIME"
+
+stage "app and Android image"
 mkdir -p "$WORK/app" && cd "$WORK/app"
-unzip -qo "$APPZIP"
+unzip -qo "$APPZIP" || exit 1
 APP="$WORK/app/Payload/Andarium.app"
+if [ "${IMAGE_KIND:-stock}" = gapps ]; then
+  [ -n "${GAPPS_IPA_URL:-}" ] || { echo "RESULT: Google image URL not configured"; exit 1; }
+  echo "Using the Google image from the supplied phone IPA, not the stock image."
+  curl -fsSL --retry 3 -o "$WORK/upstream.ipa" "$GAPPS_IPA_URL" 2>/dev/null || { echo "RESULT: Google image download failed"; exit 1; }
+else
 curl -fsSL --retry 3 -o "$WORK/upstream.ipa" \
-  https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/Andarium-1.0-9.ipa
+  https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/Andarium-1.0-9.ipa || exit 1
+fi
 rm -rf "$APP/andarium-system"
-(cd "$WORK" && unzip -qo upstream.ipa 'Payload/Andarium.app/andarium-system/*' -d upstream-ipa)
+(cd "$WORK" && unzip -qo upstream.ipa 'Payload/Andarium.app/andarium-system/*' -d upstream-ipa) || exit 1
 mv "$WORK/upstream-ipa/Payload/Andarium.app/andarium-system" "$APP/andarium-system"
 rm -rf "$WORK/upstream.ipa" "$WORK/upstream-ipa"
 ls -la "$APP/andarium-system" "$APP/andarium-system/guest"
@@ -69,10 +86,7 @@ for framework in "$APP"/Frameworks/*.framework; do codesign --force --sign - "$f
 codesign --force --sign - "$APP" || exit 1
 
 stage "$DEVICE_TYPE on iOS $IOS_MAJOR"
-xcrun simctl list runtimes
-RUNTIME=$(xcrun simctl list runtimes | grep -o "com.apple.CoreSimulator.SimRuntime.iOS-${IOS_MAJOR}-[0-9]*" | sort -V | tail -1)
-[ -n "$RUNTIME" ] || { echo "RESULT: no iOS $IOS_MAJOR runtime on this Mac"; exit 1; }
-UDID=$(xcrun simctl create "Andarium $DEVICE_TYPE" "com.apple.CoreSimulator.SimDeviceType.$DEVICE_TYPE" "$RUNTIME") || { echo "RESULT: $DEVICE_TYPE cannot be created on $RUNTIME"; xcrun simctl list devicetypes | grep iPhone; exit 1; }
+UDID=$(xcrun simctl create "Andarium $DEVICE_TYPE" "$DEVICE_IDENTIFIER" "$RUNTIME") || { echo "RESULT: $DEVICE_TYPE cannot be created on $RUNTIME"; exit 1; }
 xcrun simctl boot "$UDID" || exit 1
 xcrun simctl bootstatus "$UDID" -b | tail -2
 echo "device: $DEVICE_TYPE, runtime $RUNTIME, bundle $BUNDLE"
@@ -102,6 +116,11 @@ while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   echo "t=${elapsed}s console lines=$(wc -l < "$OUT/console-start.txt" | tr -d ' ') last stats: $(grep 'Andarium stats' "$OUT/console-start.txt" | tail -1)"
   grep -a 'Andarium: boot reached' "$OUT/console-start.txt" | tail -1
   if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; ENDED=1; break; fi
+  if grep -aq 'Andarium: runtime returned' "$OUT/console-start.txt"; then
+    echo "RESULT start: the guest runtime returned at about ${elapsed}s"
+    ENDED=1
+    break
+  fi
 done
 [ -z "${ENDED:-}" ] && echo "RESULT start: app still running after ${elapsed}s"
 echo "SUMMARY $DEVICE_TYPE iOS $IOS_MAJOR ($RUNTIME): window=$(grep -ac 'UML: cannot reserve' "$OUT/console-start.txt") refusals, kernel=$(grep -ac 'boot reached kernelRunning\|boot reached androidStarting' "$OUT/console-start.txt"), screen=$(grep -ac 'boot reached screenStarting' "$OUT/console-start.txt"), first-frame=$(grep -ac 'first frame copied' "$OUT/console-start.txt"), ready=$(grep -ac 'boot reached ready' "$OUT/console-start.txt"), stopped=$(grep -ac 'runtime returned' "$OUT/console-start.txt")"
@@ -140,5 +159,9 @@ except Exception as error:
 PY
 done
 [ -z "$(crashes)" ] && echo "no crash report"
+ALIVE=no; alive && ALIVE=yes
+python3 "$HERE/simulator_check.py" result "$OUT" --alive "$ALIVE"
+RESULT=$?
 xcrun simctl shutdown "$UDID" >/dev/null 2>&1
 ls -la "$OUT"
+exit "$RESULT"
