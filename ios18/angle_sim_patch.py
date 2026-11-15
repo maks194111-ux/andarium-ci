@@ -42,7 +42,10 @@ PATCHES = {
     # service would refuse, and leave it out, instead of losing the service.
     "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm": [(
         "#include <array>\n",
-        "#include <array>\n#include <cstring>\n#include <mutex>\n#include <set>\n",
+        "#include <array>\n#include <cstring>\n#include <mutex>\n#include <set>\n"
+        "// Andarium Simulator patch: raw argument-buffer writes below.\n"
+        "#pragma clang diagnostic ignored \"-Wunsafe-buffer-usage\"\n"
+        "#pragma clang diagnostic ignored \"-Wunsafe-buffer-usage-in-libc-call\"\n",
     ), (
         # Diagnostics: the layout each uniform argument encoder reflects...
         "        encoder->argumentIndicesKnown = true;\n",
