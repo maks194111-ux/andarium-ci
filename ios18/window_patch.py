@@ -114,5 +114,17 @@ replace("\t\tmunmap(reserved, reservation);\n"
         "\t\t\treserved = MAP_FAILED;\n"
         "\t\t}\n"
         "\t\tif (!beside && placement != WindowPlacement::exact) {\n")
+# A failed first mmap must also reach the alternate-address search. Previously
+# only a successful mapping at the wrong address did, so ENOMEM at the first
+# hint skipped every fallback. Exact-placement kernels still fail closed.
+replace("if (reserved != MAP_FAILED &&\n"
+        "\t    reinterpret_cast<std::uintptr_t>(reserved) != geometry.window_start) {\n",
+        "if (reserved == MAP_FAILED ||\n"
+        "\t    reinterpret_cast<std::uintptr_t>(reserved) != geometry.window_start) {\n")
+replace("\t\t\tmunmap(reserved, reservation);\n"
+        "\t\t\treserved = MAP_FAILED;\n",
+        "\t\t\tif (reserved != MAP_FAILED)\n"
+        "\t\t\t\tmunmap(reserved, reservation);\n"
+        "\t\t\treserved = MAP_FAILED;\n")
 path.write_text(text)
 print("address window: failures are explained; higher addresses are tried before giving up")
