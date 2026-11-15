@@ -251,6 +251,33 @@ GUEST
     guest shell "sh /data/local/tmp/threads.sh" > "$dir/threads-after.txt" 2>&1
     local split_frames=$(guest shell "dumpsys gfxinfo com.android.settings" | tr -d '\r' | awk '/Total frames rendered/ {print $4}')
     python3 "$HERE/split.py" "$name baseline" "$dir/threads-before.txt" "$dir/threads-after.txt" "${split_frames:-0}" "$split_seconds" || true
+    # 3b. Which libraries the render thread and the compositor spend their
+    #     processor time in, sampled during the same scroll.
+    guest root >/dev/null 2>&1; sleep 5
+    note "$name: shell is $(guest shell id 2>&1 | tr -d '\r' | cut -c1-40); simpleperf: $(guest shell 'which simpleperf' 2>&1 | tr -d '\r')"
+    guest shell "setprop security.perf_harden 0; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 4
+    sample() {
+      local tag=$1 pid=$2 event
+      for event in cpu-clock task-clock; do
+        guest shell "rm -f /data/local/tmp/perf-$tag.data; simpleperf record -e $event -f 2000 -p $pid --duration 12 -o /data/local/tmp/perf-$tag.data" > "$dir/perf-$tag-record.txt" 2>&1 &
+        local recorder=$!
+        sleep 1
+        guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+        wait $recorder
+        guest shell "simpleperf report -i /data/local/tmp/perf-$tag.data --sort comm,dso 2>&1" > "$dir/perf-$tag-dso.txt" 2>&1
+        guest shell "simpleperf report -i /data/local/tmp/perf-$tag.data --sort comm,dso,symbol 2>&1" > "$dir/perf-$tag-symbol.txt" 2>&1
+        grep -q '^Samples: [1-9]' "$dir/perf-$tag-dso.txt" && break
+        tail -4 "$dir/perf-$tag-record.txt" | cut -c1-200
+      done
+      echo "--- $name: processor samples of $tag by thread and library ($event)"
+      grep -E '^(Samples|Event count)' "$dir/perf-$tag-dso.txt"
+      grep -E '^ *[0-9.]+%' "$dir/perf-$tag-dso.txt" | head -28 | cut -c1-150
+      echo "--- $name: $tag by function"
+      grep -E '^ *[0-9.]+%' "$dir/perf-$tag-symbol.txt" | head -60 | cut -c1-190
+      echo "::notice title=perf $tag::$(grep -E '^ *[0-9.]+%' "$dir/perf-$tag-dso.txt" | head -12 | tr -s ' ' | cut -c1-90 | tr '\n' ';')"
+    }
+    sample settings "$(guest shell pidof com.android.settings | tr -d '\r')"
+    sample surfaceflinger "$(guest shell pidof surfaceflinger | tr -d '\r')"
     # 4. The same scroll with settings of the guest's graphics driver that move
     #    or remove processor work without changing what is drawn.
     variant() {
