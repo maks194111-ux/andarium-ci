@@ -75,6 +75,8 @@ jobs:
           echo "PYTHONPATH=$RUNNER_TEMP/python-tools" >> "$GITHUB_ENV"
       - name: Build and boot
         shell: bash
+        env:
+          GAPPS_IPA_URL: ${{ secrets.GAPPS_IPA_URL }}
         run: |
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"
