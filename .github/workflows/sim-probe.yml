@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+name: Simulator probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - name: What the runner has
+        shell: bash
+        run: |
+          sw_vers; xcodebuild -version; ls /Applications | grep -i xcode
+          xcrun simctl list runtimes
+          xcrun simctl list devicetypes | grep -iE 'iPhone (11|SE|12|16)'
+          ls /Library/Developer/CoreSimulator/Volumes 2>/dev/null || true
+          df -h / | tail -1
+          xcodebuild -downloadPlatform iOS -help 2>&1 | head -30 || true
