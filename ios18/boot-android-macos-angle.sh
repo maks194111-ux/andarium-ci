@@ -200,8 +200,12 @@ profile() {
       if [ -f "$WORK/probe/micro" ]; then
         guest push "$WORK/probe/micro" /data/local/tmp/micro >/dev/null 2>&1
         guest shell 'chmod 755 /data/local/tmp/micro; /data/local/tmp/micro' 2>&1 | tr -d '\r' | sed "s/^micro/$name:/"
+        for row in "malloc+free 32" "mutex lock" "snprintf of an integer" "libc: clock_gettime"; do
+          echo "--- $name: functions under the row '$row'"
+          guest shell "cd /data/local/tmp; simpleperf record -e cpu-clock:u -f 4000 -o micro.data ./micro '$row' 2>&1 | tail -2; simpleperf report -i micro.data --sort dso,symbol 2>&1 | grep -E '^(Samples| *[0-9.]+%)' | head -16" 2>&1 | tr -d '\r' | cut -c1-210
+        done
         echo "--- $name: where a shell loop of 60000 steps spends processor time"
-        guest shell 'cd /data/local/tmp; simpleperf record -e cpu-clock:u -f 2000 -g -o sh.data sh -c "i=0; while [ \$i -lt 60000 ]; do i=\$((i+1)); done" 2>&1 | tail -3; simpleperf report -i sh.data --sort dso,symbol 2>&1 | grep -E "^(Samples| *[0-9.]+%)" | head -45; echo "--- with callers"; simpleperf report -i sh.data --children --sort dso,symbol 2>&1 | grep -E "^ *[0-9.]+%" | head -40' 2>&1 | tr -d '\r' | cut -c1-200
+        guest shell 'cd /data/local/tmp; simpleperf record -e cpu-clock:u -f 2000 -o sh.data sh -c "i=0; while [ \$i -lt 60000 ]; do i=\$((i+1)); done" 2>&1 | tail -2; simpleperf report -i sh.data --sort dso,symbol 2>&1 | grep -E "^(Samples| *[0-9.]+%)" | head -30' 2>&1 | tr -d '\r' | cut -c1-200
         [ "${BENCH_SHORT:-1}" = 1 ] && { kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null; pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1; rm -rf "$WORK/instance-$name"; sleep 5; return 0; }
       fi
       for round in 1 2; do
