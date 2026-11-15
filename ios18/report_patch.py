@@ -35,7 +35,7 @@ edit("Andarium/Andarium/Shared/Model.swift", [
      """    var runReport: String {
         runEnd.report(
             appVersion: system.appVersion, system: system, guest: guest, uptimeSeconds: runUptimeSeconds
-        ) + sessionReport(kernelLines: 60)
+        ) + sessionReport(kernelLines: 60) + consoleReport(lines: 80)
     }
 
     /// The report's lines the screen has room for.
@@ -69,6 +69,63 @@ edit("Andarium/Andarium/Shared/Model.swift", [
         }
         return "\\n" + DiagnosticRedaction.redact(lines.joined(separator: "\\n"), containers: diagnosticsContainers)
     }
+
+    /// The last lines the process wrote to its console (`ConsoleCapture`).
+    private func consoleReport(lines count: Int) -> String {
+        let tail = ConsoleCapture.tail(lines: count)
+        guard !tail.isEmpty else { return "" }
+        return "\\nConsole:\\n" + DiagnosticRedaction.redact(tail, containers: diagnosticsContainers)
+    }
+"""),
+])
+# What the process writes to its console (the runtime's own messages and the
+# guest kernel's) is kept in a file, because nothing else on a phone shows it.
+path = root / "Andarium/Andarium/Shared/Model.swift"
+path.write_text(path.read_text() + """
+/// Keeps what the process writes to its console in a file, so the failure
+/// screen's report can carry the last lines: a start that fails before the
+/// guest runs leaves no session record, only those lines.
+enum ConsoleCapture {
+    static var url: URL {
+        let directory = (try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        )) ?? FileManager.default.temporaryDirectory
+        return directory.appendingPathComponent("console.log")
+    }
+
+    /// Sends the process's output to the file, emptied at each launch. A
+    /// launch from a terminal keeps its terminal.
+    static func start() {
+        guard isatty(STDERR_FILENO) == 0 else { return }
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0o644)
+        guard descriptor >= 0 else { return }
+        dup2(descriptor, STDOUT_FILENO)
+        dup2(descriptor, STDERR_FILENO)
+        close(descriptor)
+    }
+
+    /// The file's last `count` lines, from its last 48 KiB.
+    static func tail(lines count: Int) -> String {
+        fflush(nil)
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 48 << 10 ? size - (48 << 10) : 0)
+        let data = (try? handle.readToEnd()) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+            .split(separator: "\\n").suffix(count).joined(separator: "\\n")
+    }
+}
+""")
+edit("Andarium/Andarium/Live/AppEntry.swift", [
+    ("""        let info = ProcessInfo.processInfo
+        let overrides = LaunchOverrides(
+            environment: info.environment,
+""",
+     """        let info = ProcessInfo.processInfo
+        ConsoleCapture.start()
+        let overrides = LaunchOverrides(
+            environment: info.environment,
 """),
 ])
 edit("Andarium/Andarium/Shared/EndView.swift", [
