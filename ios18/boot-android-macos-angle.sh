@@ -192,11 +192,13 @@ profile() {
     guest shell "for n in 1 2 3 4 5 6 7 8; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
     guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-scroll.txt" 2>&1
     guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-settings.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-settings.txt" 2>&1
     # 2. System animations: the notification shade, six times down and up.
     guest shell "dumpsys gfxinfo com.android.systemui reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear"
     guest shell "for n in 1 2 3 4 5 6; do cmd statusbar expand-notifications; sleep 1.5; cmd statusbar collapse; sleep 1.5; done"
     guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-shade.txt" 2>&1
     guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/gfxinfo-systemui.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.systemui framestats" > "$dir/framestats-systemui.txt" 2>&1
     guest shell "dumpsys SurfaceFlinger --timestats -disable"
     guest exec-out screencap -p > "$dir/after.png"
     guest shell "cat /proc/meminfo | head -20; cat /proc/swaps; cat /proc/pressure/memory" > "$dir/guest-memory.txt" 2>&1
@@ -209,6 +211,12 @@ profile() {
       echo "--- $name / $package: application frames"
       grep -E "Total frames rendered|Janky frames|percentile|Number Missed Vsync|Number Slow UI|Number Frame deadline" "$dir/gfxinfo-$package.txt" | head -16
     done
+    for package in settings systemui; do
+      python3 "$HERE/framestats.py" "$name / $package" "$dir/framestats-$package.txt" || true
+    done
+    guest shell "top -b -n 1 -H -m 25 -o PID,TID,%CPU,CMD,NAME" > "$dir/guest-top.txt" 2>&1
+    guest shell "getprop | grep -iE 'hwui|renderer|debug.sf|ro.surface_flinger|vsync|ro.hardware.egl|ro.opengles|zygote|dalvik.vm.usejit|dalvik.vm.dex2oat-filter|pm.dexopt'" > "$dir/guest-props.txt" 2>&1
+    echo "--- $name: guest properties"; cut -c1-150 "$dir/guest-props.txt" | head -60
     echo "--- $name: guest memory"; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree|some|full" "$dir/guest-memory.txt"
     local pid=$(pgrep -f uml-darwin-android17 | head -1)
     echo "--- $name: host process"; [ -z "$pid" ] || top -l 1 -pid "$pid" -stats pid,mem,cpu,threads | tail -2
