@@ -34,12 +34,12 @@ def edit(relative: str, changes) -> None:
 if part == "engine":
     edit("darwin/runtime/kernel_threads.cpp", [
         ("#include <array>\n", "#include <array>\n#include <pthread.h>\n#include <pthread/qos.h>\n"),
-        ("""void *const routine_argument = slot->argument;
-slot->word.store(""",
-         """void *const routine_argument = slot->argument;
-/* A person is waiting for what the guest's processors compute. */
-(void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
-slot->word.store("""),
+        ("""\tvoid *const routine_argument = slot->argument;
+\tslot->word.store(""",
+         """\tvoid *const routine_argument = slot->argument;
+\t/* A person is waiting for what the guest's processors compute. */
+\t(void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+\tslot->word.store("""),
     ])
     edit("darwin/device/vhost_user/vhost_user_server.cpp", [
         ("#include <pthread.h>\n", "#include <pthread.h>\n#include <pthread/qos.h>\n"),
