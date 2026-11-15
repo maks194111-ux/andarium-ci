@@ -461,12 +461,22 @@ watch_gapps() {
     local at=$(( $(date +%s) - started ))
     if ! kill -0 "$launcher" 2>/dev/null; then note "$name: THE EMULATOR ENDED BY ITSELF after $at s (booted=$booted)"; RESULT=1; break; fi
     local line=$(guest shell 'echo "boot=$(getprop sys.boot_completed) anim=$(getprop init.svc.bootanim) $(grep -E "MemAvailable|SwapFree" /proc/meminfo | tr -s " " | tr "\n" " ") $(tr "\n" " " < /proc/pressure/memory | cut -c1-60) procs=$(ls /proc | grep -c "^[0-9]")"' 2>/dev/null | tr -d '\r')
-    echo "$name t=${at}s host=$(ps -o rss= -p "$(pgrep -f uml-darwin-android17 | head -1)" 2>/dev/null | awk '{printf "%d MiB", $1/1024}') $line"
+    local runtime_pid=$(ps -ax -o pid=,comm= | awk '$2 ~ /\/uml-darwin-android17$/ {print $1; exit}')
+    local runtime_rss=unavailable
+    if [ -n "$runtime_pid" ]; then
+      runtime_rss=$(ps -o rss= -p "$runtime_pid" 2>/dev/null | awk '{printf "%d MiB", $1/1024}')
+    fi
+    echo "$name t=${at}s host=$runtime_rss $line"
     case "$line" in boot=1*) if [ "$booted" = 0 ]; then booted=1; note "$name: boot_completed after about $at s"; guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard" >/dev/null 2>&1; fi;; esac
     if [ "$booted" = 1 ] && [ $((i % 6)) = 0 ]; then
       guest shell "monkey -p com.android.vending -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
     fi
   done
+  if [ "$booted" != 1 ]; then
+    note "$name: Android did not report boot_completed during the watch"
+    RESULT=1
+  fi
+  if ! kill -0 "$launcher" 2>/dev/null; then RESULT=1; fi
   guest exec-out screencap -p > "$dir/screen.png" 2>/dev/null
   guest logcat -d > "$dir/logcat.txt" 2>&1
   guest shell dmesg > "$dir/dmesg.txt" 2>&1
@@ -493,7 +503,7 @@ if [ "${PROFILES:-all}" = gapps ]; then
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
   watch_gapps gapps-1408 1408M 2098 6 ${WATCH_MINUTES:-28}
-  echo "RESULT: Google image watch finished (status $RESULT)."; exit 0
+  echo "RESULT: Google image watch finished (status $RESULT)."; exit "$RESULT"
 fi
 if [ "${PROFILES:-all}" = sample ]; then
   export SAMPLE=1
