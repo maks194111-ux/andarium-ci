@@ -10,7 +10,8 @@ WORK=$(cd "$2" && pwd)
 ANGLE=$(cd "$3" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT="$WORK/boot-report"; mkdir -p "$OUT"
-stage() { echo; echo "===== STAGE: $* ====="; }
+stage() { echo; echo "===== STAGE: $* ====="; echo "::notice title=stage::$*"; }
+note() { echo "$*"; echo "::notice title=progress::$*"; }
 
 sw_vers; sysctl -n hw.ncpu hw.memsize
 HOST_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
@@ -180,11 +181,11 @@ profile() {
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   local booted=0 i state
-  for i in $(seq 1 300); do
+  for i in $(seq 1 "${BOOT_TRIES:-300}"); do
     sleep 10
-    kill -0 "$launcher" 2>/dev/null || { echo "launcher exited"; break; }
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; tail -5 "$dir/launcher.log" | cut -c1-200; break; }
     state=$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-    if [ "$state" = 1 ]; then booted=1; echo "$name: boot_completed after about $(( $(date +%s) - started )) s"; break; fi
+    if [ "$state" = 1 ]; then booted=1; note "$name: boot_completed after about $(( $(date +%s) - started )) s"; break; fi
   done
   if [ "$booted" = 1 ]; then
     # Let the launcher finish provisioning and the first-boot work settle.
@@ -270,6 +271,7 @@ GUEST
       echo "--- variant $tag: $* ; threads of the app: $(guest shell 'for t in /proc/$(pidof com.android.settings)/task/*; do cat $t/comm; done' | tr -d '\r' | grep -ciE 'gl|mesa') with gl in the name"
       python3 "$HERE/split.py" "$name $tag" "$dir/threads-$tag-before.txt" "$dir/threads-$tag-after.txt" "${count:-0}" "$took" || true
       python3 "$HERE/framestats.py" "$name $tag" "$dir/framestats-$tag.txt" || true
+      echo "::notice title=frames $name $tag::$(python3 "$HERE/framestats.py" "$name $tag" "$dir/framestats-$tag.txt" 2>/dev/null | grep -E 'issuing|whole frame|UI thread' | tr -s ' ' | tr '\n' ';')"
       for setting in "$@"; do guest shell "setprop ${setting%%=*} ''"; done
     }
     variant same
@@ -285,7 +287,8 @@ GUEST
     echo "$name: fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$dir/logcat.txt")"
     grep -E "FATAL EXCEPTION|Fatal signal|lowmemorykiller|lmkd.*[Kk]ill" "$dir/logcat.txt" | cut -c1-200 | head -12
   else
-    echo "RESULT: profile $name did not reach boot_completed"; RESULT=1
+    note "RESULT: profile $name did not reach boot_completed"; RESULT=1
+    tail -25 "$dir/launcher.log" | cut -c1-220
   fi
   kill -0 "$launcher" 2>/dev/null && echo "$name: emulator still running at the end" || { echo "$name: EMULATOR EXITED DURING THE TEST"; RESULT=1; }
   echo "--- $name: host lines"
@@ -306,9 +309,9 @@ profile full 4G 120 0 720 1280 320
 if [ "${PROFILES:-all}" = tier ]; then
   # Busy address spaces move to the JIT after this many instructions.
   for threshold in ${TIERS:-200000000 2000000000}; do
-    export UML_JIT_TIER=$threshold
+    export UML_JIT_TIER=$threshold BOOT_TRIES=90
     profile "tier-$threshold" 4G 120 0 720 1280 320 jit
-    unset UML_JIT_TIER
+    unset UML_JIT_TIER BOOT_TRIES
   done
   echo "RESULT: interpreter and tiered profiles finished (status $RESULT)."; exit 0
 fi
