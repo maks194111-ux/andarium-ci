@@ -18,13 +18,15 @@ jobs:
           git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           git -C ci fetch --depth=1 origin "$GITHUB_SHA"
           git -C ci checkout --detach FETCH_HEAD
-      - name: iPhone 11 on iOS 18 in the Simulator
+      - name: Which older iOS Simulator runtimes Apple offers this Xcode
         shell: bash
         run: |
-          set -euo pipefail
-          UDID=$(bash ci/ios18/simulator-ios18.sh | tail -1)
-          xcrun simctl list devices | grep -i andarium
-          xcrun simctl getenv "$UDID" SIMULATOR_RUNTIME_VERSION
-          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/home.png"
-          xcrun simctl spawn "$UDID" sysctl -n hw.memsize hw.ncpu || true
-          ls -la "$RUNNER_TEMP/home.png"
+          set +e
+          which xcodes && xcodes runtimes 2>&1 | head -60
+          for v in 18.0 18.1 18.2 18.3 18.3.1 18.4 18.5 18.6 22A3351 22B81 22C150 22D8075 22E238 22F77 22G86 26.0 26.1 26.2 26.4; do
+            echo "== $v"
+            xcodebuild -downloadPlatform iOS -buildVersion "$v" 2>&1 | tail -3
+            if xcrun simctl list runtimes | grep -qE "iOS (18|26)\."; then break; fi
+          done
+          xcrun simctl list runtimes
+          df -h / | tail -1
