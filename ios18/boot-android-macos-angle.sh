@@ -174,6 +174,7 @@ profile() {
   stage "profile $name: RAM $memory, $hertz Hz, limit ${limit} MiB, ${width}x${height}"
   export UML_GUEST_REFRESH_HZ=$hertz
   if [ "$limit" != 0 ]; then export UML_MEMORY_LIMIT_MIB=$limit; else unset UML_MEMORY_LIMIT_MIB; fi
+  if [ "${SAMPLE:-0}" = 1 ]; then export DARWIN_UML_GUEST_SAMPLES="$dir/samples.txt:2000"; fi
   local started=$(date +%s)
   python3 tools/boot_android.py --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
     --display offscreen --width "$width" --height "$height" --dpi "$dpi" --audio-output null \
@@ -194,6 +195,60 @@ profile() {
       sleep 5
     done
     sleep 60
+    if [ "${SAMPLE:-0}" = 1 ]; then
+      # The engine's own sampler, read from the host: which host code (guest
+      # kernel, translation, memory paths) and which guest functions the
+      # processors run while Settings scrolls.
+      local sx=$((width / 2)) slow=$((height * 3 / 4)) shigh=$((height / 4)) lib
+      mkdir -p "$dir/elf"
+      for lib in /system/lib64/libhwui.so /system/lib64/libgui.so /system/lib64/libui.so /system/lib64/libbinder.so \
+          /system/lib64/libutils.so /system/lib64/libandroid_runtime.so /system/lib64/libc++.so /system/lib64/libEGL.so \
+          /system/lib64/libminikin.so /system/lib64/libinput.so /system/lib64/libcutils.so /system/lib64/libbase.so \
+          /system/lib64/liblog.so /system/lib64/libft2.so /system/lib64/libharfbuzz_ng.so /system/lib64/libsurfaceflinger.so \
+          /system/lib64/librenderengine.so /system/lib64/libandroidfw.so /system/lib64/libhidlbase.so /system/lib64/libnativewindow.so \
+          /system/bin/surfaceflinger /system/bin/app_process64 /vendor/lib64/venus_gallium_dri.so \
+          /apex/com.android.runtime/lib64/bionic/libc.so /apex/com.android.runtime/lib64/bionic/libm.so \
+          /apex/com.android.runtime/bin/linker64 /apex/com.android.art/lib64/libart.so /apex/com.android.art/lib64/libartbase.so \
+          /apex/com.android.i18n/lib64/libicuuc.so; do
+        guest pull "$lib" "$dir/elf/" >/dev/null 2>&1 || echo "could not pull $lib"
+      done
+      ls "$dir/elf" | wc -l
+      guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1
+      sleep 20
+      guest shell "for n in 1 2; do input swipe $sx $slow $sx $shigh 1200; input swipe $sx $shigh $sx $slow 1200; done"
+      sleep 3; cp "$dir/samples.txt" "$dir/samples-idle-start.txt"
+      sleep 20; cp "$dir/samples.txt" "$dir/samples-before.txt"
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null"
+      guest shell "for n in 1 2 3 4 5 6 7 8 9 10 11 12; do input swipe $sx $slow $sx $shigh 1200; input swipe $sx $shigh $sx $slow 1200; done"
+      guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-sample.txt" 2>&1
+      sleep 3; cp "$dir/samples.txt" "$dir/samples-after.txt"
+      python3 "$HERE/framestats.py" "$name sampled scroll" "$dir/framestats-sample.txt" || true
+      echo "--- $name: idle 20 s, host and guest samples"
+      python3 tests/perf/symbolize_guest_samples.py "$dir/samples-before.txt" "$dir/elf" --baseline "$dir/samples-idle-start.txt" --top 25 2>&1 | cut -c1-200
+      echo "--- $name: Settings scroll, host and guest samples"
+      python3 tests/perf/symbolize_guest_samples.py "$dir/samples-after.txt" "$dir/elf" --baseline "$dir/samples-before.txt" --top 90 2>&1 | cut -c1-200
+      echo "--- $name: gadgets during the scroll"
+      python3 - "$dir/samples-before.txt" "$dir/samples-after.txt" <<'PYS'
+import collections, sys
+def read(path):
+    kinds = {"guest": 0, "host": 0}; gadgets = collections.Counter()
+    for line in open(path, errors="replace"):
+        f = line.rstrip("\n").split("\t")
+        if f[0] in kinds and len(f) > 2: kinds[f[0]] += int(f[1])
+        if f[0] == "gadget" and len(f) > 2: gadgets[f[2]] += int(f[1])
+    return kinds, gadgets
+(k0, g0), (k1, g1) = read(sys.argv[1]), read(sys.argv[2])
+guest, host = k1["guest"] - k0["guest"], k1["host"] - k0["host"]
+print(f"samples in translated guest code {guest}, in host code {host}: guest share {100 * guest / max(guest + host, 1):.1f}%")
+g1.subtract(g0); total = sum(g1.values()) or 1
+for name, count in g1.most_common(40): print(f"  {100 * count / total:6.2f}%  {name}")
+PYS
+      rm -rf "$dir/elf"
+      kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+      pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+      rm -rf "$WORK/instance-$name"; sleep 5
+      return 0
+    fi
     if [ "${BENCH:-0}" = 1 ]; then
       # Processor-bound work in one process: how fast does each engine run
       # code that is already hot? "user" is processor time, not waiting.
@@ -386,6 +441,11 @@ GUEST
 }
 
 set +e
+if [ "${PROFILES:-all}" = sample ]; then
+  export SAMPLE=1
+  profile sample 4G 120 0 720 1280 320 gadgets
+  echo "RESULT: sampled scroll finished."; exit 0
+fi
 if [ "${PROFILES:-all}" = bench ]; then
   export BENCH=1
   profile bench-interpreter 4G 60 0 720 1280 320 gadgets
