@@ -505,6 +505,45 @@ if [ "${PROFILES:-all}" = gapps ]; then
   watch_gapps gapps-1408 1408M 2098 6 ${WATCH_MINUTES:-28}
   echo "RESULT: Google image watch finished (status $RESULT)."; exit "$RESULT"
 fi
+if [ "${PROFILES:-all}" = text ]; then
+  # Missing text: which part of the GPU text path fails, with the renderer's
+  # GLES-host log and the guest's own GL checks.
+  dir="$OUT/text"; mkdir -p "$dir"
+  set +e
+  export VREND_DEBUG=${TEXT_VREND_DEBUG:-gles,bgra,feat,tweak,glsl} VIRGL_LOG_LEVEL=debug VIRGL_LOG_FILE="$dir/virgl.log"
+  export UML_GUEST_REFRESH_HZ=60
+  python3 tools/boot_android.py --instance "$WORK/instance-text" --reset --provision --emulator "$EMULATOR" \
+    --display offscreen --width 720 --height 1280 --dpi 320 --audio-output null \
+    --cpus "$CPUS" --memory 4G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  launcher=$!
+  booted=0
+  for i in $(seq 1 300); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "text: launcher exited"; break; }
+    [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && { booted=1; break; }
+  done
+  note "text: booted=$booted"
+  if [ "$booted" = 1 ]; then
+    sleep 60
+    guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard" >/dev/null 2>&1
+    guest push "$WORK/probe/gltext" /data/local/tmp/gltext >/dev/null 2>&1
+    guest shell 'chmod 755 /data/local/tmp/gltext; /data/local/tmp/gltext' > "$dir/gltext.txt" 2>&1
+    cat "$dir/gltext.txt"
+    guest install -r "$WORK/probe/probe.apk" 2>&1 | tail -1
+    guest shell "am start -W -n local.andarium.probe/.TextProbeActivity" >/dev/null 2>&1; sleep 10
+    guest exec-out screencap -p > "$dir/text-probe.png"
+    guest shell "am start -W -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 15
+    guest exec-out screencap -p > "$dir/settings.png"
+    guest shell "dumpsys gfxinfo local.andarium.probe" > "$dir/gfxinfo-probe.txt" 2>&1
+    guest shell "getprop" > "$dir/getprop.txt" 2>&1
+    guest logcat -d > "$dir/logcat.txt" 2>&1
+  fi
+  kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null
+  ls -la "$dir"; grep -a -iE "error|fail|unsupported|emulat" "$dir/virgl.log" | sed 's/[0-9]\+/N/g' | sort | uniq -c | sort -rn | head -60
+  echo "RESULT: text check finished (booted=$booted)."; exit 0
+fi
 if [ "${PROFILES:-all}" = sample ]; then
   export SAMPLE=1
   profile sample 4G 120 0 720 1280 320 gadgets
