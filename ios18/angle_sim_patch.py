@@ -30,6 +30,18 @@ PATCHES = {
         "        mNativeCaps.uniformBufferOffsetAlignment =\n"
         "            16;",
     )],
+    # Simulator only: name any argument-buffer binding the Simulator's Metal
+    # service would refuse, and leave it out, instead of losing the service.
+    "src/libANGLE/renderer/metal/ProgramExecutableMtl.mm": [(
+        "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
+        "        if (offset >= mtlBuffer->size())\n"
+        "        {\n"
+        "            NSLog(@\"Andarium ANGLE UBO: block %u slot %u offset %zu length %zu\",\n"
+        "                  bufferIndex, actualBufferIdx, offset, mtlBuffer->size());\n"
+        "            continue;\n"
+        "        }\n"
+        "        [bufferEncoder.metalArgBufferEncoder setBuffer:mtlBuffer->get()\n",
+    )],
 }
 
 
