@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+name: iOS 18 Simulator run (iPhone 11)
+on:
+  workflow_dispatch:
+    inputs:
+      app_run:
+        description: Run id of the app build that holds the app artifact
+        required: true
+      seconds:
+        description: How long to watch the Android start
+        default: "420"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  simulator:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Fetch public sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+      - uses: actions/download-artifact@v4
+        with:
+          name: andarium-ios18-app-without-system-image
+          run-id: ${{ inputs.app_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/app-download
+      - name: Run on the iPhone 11 Simulator with iOS 18
+        shell: bash
+        run: |
+          bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-report
+          path: ${{ runner.temp }}/simulator-report
+          retention-days: 14
