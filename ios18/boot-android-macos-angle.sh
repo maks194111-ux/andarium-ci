@@ -143,6 +143,7 @@ mkdir -p .build/kernel/artifacts .build/android/releases
 curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
+python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
 curl -fsSL --retry 3 -o "$WORK/release.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/lineage24-mainline6.18-4k-20261110-los24-r22.tar.gz
 tar -C .build/android/releases -xzf "$WORK/release.tar.gz"
@@ -201,6 +202,8 @@ profile() {
       sleep 5
     done
     sleep 60
+    # How much of the kernel's own mapping allowance (now 1 GiB) is in use.
+    note "$name: $(guest shell 'grep -E "MemTotal|VmallocTotal|VmallocUsed" /proc/meminfo; echo threads $(ps -AT | wc -l)' 2>&1 | tr -s ' \r\n' ' ')"
     if [ "${SAMPLE:-0}" = 1 ]; then
       # The engine's own sampler, read from the host: which host code (guest
       # kernel, translation, memory paths) and which guest functions the
