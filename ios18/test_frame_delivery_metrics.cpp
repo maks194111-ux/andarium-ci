@@ -39,4 +39,8 @@ int main()
     assert(slow && slow->fps < 1 && slow->worstMs == 6000);
     // Geometry-only redraw of an old content generation is not a new frame.
     assert(!metrics.presented(17, 2));
+    FrameDeliveryMetrics process;
+    assert(!process.presented(100, 1, 20));
+    const auto usage = process.presented(105, 2, 30);
+    assert(usage && usage->processCpuCores == 2);
 }
