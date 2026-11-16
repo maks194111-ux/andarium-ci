@@ -224,11 +224,18 @@ profile() {
       guest shell "for n in 1 2; do input swipe $sx $slow $sx $shigh 1200; input swipe $sx $shigh $sx $slow 1200; done"
       sleep 3; cp "$dir/samples.txt" "$dir/samples-idle-start.txt"
       sleep 20; cp "$dir/samples.txt" "$dir/samples-before.txt"
+      # Host-side stacks of the emulator during the scroll: where its guest
+      # processor threads wait.
+      sample "$(pgrep -f uml-darwin-android17 | head -1)" 20 -file "$dir/host-sample.txt" > /dev/null 2>&1 &
+      host_sampler=$!
       guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null"
       guest shell "for n in 1 2 3 4 5 6 7 8 9 10 11 12; do input swipe $sx $slow $sx $shigh 1200; input swipe $sx $shigh $sx $slow 1200; done"
       guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-sample.txt" 2>&1
       sleep 3; cp "$dir/samples.txt" "$dir/samples-after.txt"
       python3 "$HERE/framestats.py" "$name sampled scroll" "$dir/framestats-sample.txt" || true
+      wait "$host_sampler"
+      echo "--- $name: host stacks during the scroll"
+      python3 "$HERE/host_sample_report.py" "$dir/host-sample.txt" 2>&1 | cut -c1-160
       echo "--- $name: idle 20 s, host and guest samples"
       python3 tests/perf/symbolize_guest_samples.py "$dir/samples-before.txt" "$dir/elf" --baseline "$dir/samples-idle-start.txt" --top 25 2>&1 | cut -c1-200
       echo "--- $name: Settings scroll, host and guest samples"
