@@ -172,10 +172,13 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
     # A screen recording of the first two minutes of flings. The hosted Mac may
     # have no video encoder; then a series of screenshots stands in for it.
     (
-      sleep 45
+      # Start when the list is open, so the recording shows the flings.
+      for wait in $(seq 1 120); do
+        grep -aq 'SOAK .* list opened' "$OUT/soak-test.log" 2>/dev/null && break; sleep 2
+      done
       xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/soak-video.mp4" > "$OUT/soak-video.log" 2>&1 &
       recorder=$!
-      sleep 120
+      sleep 90
       kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
       if [ ! -s "$OUT/soak-video.mp4" ]; then
         echo "no video file; taking frames instead" >> "$OUT/soak-video.log"
