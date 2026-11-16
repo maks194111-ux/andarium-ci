@@ -155,15 +155,22 @@ template<typename Cpu, typename Memory>
 
 } // namespace fast_clock
 """),
-    ("""\tconst auto result = engine->run(request);
-\tdebug_check_host_streaming_state();
-""",
-     """\tauto result = engine->run(request);
+])
+
+# The tier experiment rewrites these lines without indentation, so match them
+# whatever the leading white space is.
+import re
+path = root / "darwin/runtime/static_guest.cpp"
+text = path.read_text()
+pattern = re.compile(r"[ \t]*const auto result = engine->run\(request\);\n[ \t]*debug_check_host_streaming_state\(\);\n")
+if len(pattern.findall(text)) != 1:
+    raise SystemExit("static_guest.cpp: the AArch64 run call was not found exactly once")
+text = pattern.sub(lambda _: """\tauto result = engine->run(request);
 \t/* A time query is answered here and the guest runs on. */
 \twhile (result.reason == uml::cpu::ExitReason::system_call &&
 \t       !request.single_step && fast_clock::answer(cpu, memory))
 \t\tresult = engine->run(request);
 \tdebug_check_host_streaming_state();
-"""),
-])
+""", text)
+path.write_text(text)
 print("fast clock: patched")
