@@ -64,11 +64,14 @@ def resource_difference(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path)
+    parser.add_argument("--prefix", choices=("mapping", "aot"), default="mapping")
     args = parser.parse_args()
     output = {"environment": "Hosted macOS VM, Google image, 3 GiB RAM, 4 vCPUs, 828x1792, 60 Hz",
               "device_performance_measured": False, "profiles": {}, "comparisons": {}}
+    if args.prefix == "aot":
+        output["environment"] = "Hosted macOS VM, FIX9 vs full AOT/no ART JIT, 3 GiB, 4 vCPUs, 2048x2732, 60 Hz"
     for name in ("A1", "B1", "B2", "A2"):
-        directory = args.report / f"mapping-{name}"
+        directory = args.report / f"{args.prefix}-{name}"
         output["profiles"][name] = {
             "settings": frames(directory / "framestats-settings.txt"),
             "systemui": frames(directory / "framestats-systemui.txt"),

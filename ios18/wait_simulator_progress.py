@@ -12,6 +12,18 @@ while time.monotonic() < deadline:
     if images:
         print("Screenshot checkpoint:", images[-1].name, flush=True)
         break
+    # A fast boot starts the long soak before indices 03 or 06 are reached.
+    # Skipping a missing progress image is safe only after ready AND an
+    # earlier real Android screenshot. The final harness result still decides
+    # success; this is not permission to turn a failed soak green.
+    report = root / "simulator-report"
+    console = report / "console-start.txt"
+    if (pattern in ("03-start-*.png", "06-start-*.png")
+            and console.exists()
+            and "boot reached ready" in console.read_text(errors="replace")
+            and any(report.glob("[0-9][0-9]-start-*.png"))):
+        print("Android became ready before this optional screenshot; soak continues", flush=True)
+        break
     if (root / "simulator.exit").exists():
         print("Test finished before this screenshot checkpoint", flush=True)
         break

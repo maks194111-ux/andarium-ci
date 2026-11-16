@@ -15,11 +15,13 @@ on:
       tiers:
         description: Interpreter/JIT thresholds for existing optional profiles
         default: "200000000 2000000000"
+      baseline_system_sha256:
+        description: FIX9 system disk hash required for the AOT comparison
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: andarium-optimization-compare
+  group: andarium-optimization-compare-${{ inputs.profiles }}
   cancel-in-progress: true
 jobs:
   boot:
@@ -62,6 +64,9 @@ jobs:
         shell: bash
         env:
           GAPPS_IPA_URL: ${{ secrets.GAPPS_IPA_URL }}
+          GAPPS_AOT_RELEASE_URL: ${{ secrets.GAPPS_AOT_RELEASE_URL }}
+          GAPPS_FIX9_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
+          EXPECTED_BASELINE_SYSTEM_SHA256: ${{ inputs.baseline_system_sha256 }}
         run: |
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"

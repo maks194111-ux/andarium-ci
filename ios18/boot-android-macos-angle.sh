@@ -209,7 +209,19 @@ profile() {
     sleep 60
     # How much of the kernel's own mapping allowance (now 1 GiB) is in use.
     note "$name: $(guest shell 'grep -E "MemTotal|VmallocTotal|VmallocUsed" /proc/meminfo; echo threads $(ps -AT | wc -l)' 2>&1 | tr -s ' \r\n' ' ')"
-    if [ "${PROFILES:-all}" = mapping ]; then
+    if [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ]; then
+      if [ -n "${EXPECTED_ART_JIT:-}" ]; then
+        local art_jit
+        art_jit=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n')
+        note "$name: ART JIT=$art_jit, expected $EXPECTED_ART_JIT"
+        if [ "$art_jit" != "$EXPECTED_ART_JIT" ]; then
+          note "RESULT: ART policy is not the expected one; comparison invalid"
+          RESULT=1
+          kill -INT "$launcher" 2>/dev/null; sleep 10
+          pkill -9 -f uml-darwin-android17 2>/dev/null
+          return 1
+        fi
+      fi
       guest shell 'getprop; pm list features; dumpsys SurfaceFlinger' > "$dir/compatibility.txt" 2>&1
       guest shell 'cat /proc/meminfo; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/diskstats; dumpsys cpuinfo' > "$dir/resources-before.txt" 2>&1
       ps -ax -o pid=,%cpu=,rss=,comm= | grep '/uml-darwin-android17$' > "$dir/host-resources-before.txt" || true
@@ -328,7 +340,7 @@ PYS
     guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/gfxinfo-systemui.txt" 2>&1
     guest shell "dumpsys gfxinfo com.android.systemui framestats" > "$dir/framestats-systemui.txt" 2>&1
     guest shell "dumpsys SurfaceFlinger --timestats -disable"
-    if [ "${PROFILES:-all}" = mapping ]; then
+    if [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ]; then
       guest shell 'cat /proc/meminfo; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/diskstats; dumpsys cpuinfo' > "$dir/resources-after.txt" 2>&1
       ps -ax -o pid=,%cpu=,rss=,comm= | grep '/uml-darwin-android17$' > "$dir/host-resources-after.txt" || true
       # Installability and launch are independent of Play listing visibility.
@@ -541,10 +553,12 @@ watch_gapps() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ]; then
-  [ -n "${GAPPS_IPA_URL:-}" ] || { echo "RESULT: no package address was provided."; exit 1; }
+if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ]; then
+  source_url="${GAPPS_IPA_URL:-}"
+  if [ "${PROFILES:-all}" = aot ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
+  [ -n "$source_url" ] || { echo "RESULT: no package address was provided."; exit 1; }
   stage "the Google image of the phone build"
-  curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$GAPPS_IPA_URL" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
+  curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$source_url" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
   STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1)
   GAPPS_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-experimental-20261114-profiled"
   cp -R "$STOCK" "$GAPPS_RELEASE"
@@ -552,6 +566,38 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ]; then
     unzip -p "$WORK/gapps.ipa" "Payload/Andarium.app/andarium-system/$entry" > "$GAPPS_RELEASE/$entry"
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
+  shasum -a 256 "$GAPPS_RELEASE/guest/system.img" > "$OUT/baseline-system-sha256.txt"
+  if [ "${PROFILES:-all}" = aot ]; then
+    [ -n "${GAPPS_AOT_RELEASE_URL:-}" ] || { echo "RESULT: no private AOT release address"; exit 1; }
+    actual=$(awk '{print $1}' "$OUT/baseline-system-sha256.txt")
+    [ -n "${EXPECTED_BASELINE_SYSTEM_SHA256:-}" ] && [ "$actual" = "$EXPECTED_BASELINE_SYSTEM_SHA256" ] || {
+      echo "RESULT: the source image is not FIX9; refusing a mislabeled comparison."
+      exit 1
+    }
+    AOT_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-full-aot-experiment"
+    cp -R "$STOCK" "$AOT_RELEASE"
+    curl -fsSL --retry 3 -o "$WORK/aot-release.zip" "$GAPPS_AOT_RELEASE_URL" 2>/dev/null || {
+      echo "RESULT: private AOT release fetch failed"; exit 1;
+    }
+    for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+      unzip -p "$WORK/aot-release.zip" "$entry" > "$AOT_RELEASE/$entry"
+    done
+    rm -f "$WORK/aot-release.zip"
+    curl -fL --retry 3 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk
+    shasum -a 256 "$WORK/telegram.apk" > "$OUT/telegram-download-sha256.txt"
+    CPUS=4
+    BASELINE_RELEASE="$GAPPS_RELEASE"
+    # Same CPU count and screen geometry isolate the image/ART policy.
+    # This is a lab comparison, not a four-core cap for the iPad app.
+    EXPECTED_ART_JIT=true profile aot-A1 3G 60 0 2048 2732 264 gadgets
+    GAPPS_RELEASE="$AOT_RELEASE"
+    EXPECTED_ART_JIT=false profile aot-B1 3G 60 0 2048 2732 264 gadgets
+    EXPECTED_ART_JIT=false profile aot-B2 3G 60 0 2048 2732 264 gadgets
+    GAPPS_RELEASE="$BASELINE_RELEASE"
+    EXPECTED_ART_JIT=true profile aot-A2 3G 60 0 2048 2732 264 gadgets
+    echo "RESULT: full-AOT/no-ART-JIT ABBA comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = mapping ]; then
     # Same binary, image, geometry and CPU count, alternating order to reduce
     # host drift. The original algorithm is FIX9's. No sampling during timing.
