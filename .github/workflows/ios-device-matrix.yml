@@ -14,6 +14,10 @@ on:
         description: Enable the app-side Metal validation layer (1) or not (0)
         required: false
         default: "0"
+      soak_seconds:
+        description: After Android is ready, fling its language list this long (0 = no soak)
+        required: false
+        default: "0"
 permissions:
   contents: read
   actions: read
@@ -34,7 +38,7 @@ jobs:
           - { device: iPad-Pro-auto, ios: "27", runner: xcode-27, memory: "3072" }
     name: ${{ matrix.device }} iOS ${{ matrix.ios }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
+    timeout-minutes: 80
     steps:
       - name: Fetch public test sources
         shell: bash
@@ -61,6 +65,7 @@ jobs:
         env:
           IMAGE_KIND: gapps
           METAL_VALIDATION: ${{ inputs.metal_validation }}
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
           GAPPS_IPA_URL: ${{ secrets.GAPPS_IPA_URL }}
         run: |
           set -euo pipefail
@@ -69,7 +74,7 @@ jobs:
             set +e
             bash ci/ios18/run-simulator.sh \
               "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
-              "$RUNNER_TEMP" 420 "$RUNNER_TEMP/angle-sim" \
+              "$RUNNER_TEMP" "$([ "$SOAK_SECONDS" -gt 0 ] && echo 1200 || echo 420)" "$RUNNER_TEMP/angle-sim" \
               "${{ matrix.memory }}" "${{ matrix.device }}" "${{ matrix.ios }}"
             result=$?
             printf '%s\n' "$result" > "$RUNNER_TEMP/simulator.exit.tmp"
@@ -105,7 +110,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 720); do
             [ -f "$RUNNER_TEMP/simulator.exit" ] && break
             [ -f "$RUNNER_TEMP/simulator.pid" ] || break
             kill -0 "$(cat "$RUNNER_TEMP/simulator.pid")" 2>/dev/null || break
