@@ -91,6 +91,21 @@ xcrun simctl boot "$UDID" || exit 1
 xcrun simctl bootstatus "$UDID" -b | tail -2
 echo "device: $DEVICE_TYPE, runtime $RUNTIME, bundle $BUNDLE"
 xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
+SOAK_SECONDS=${SOAK_SECONDS:-0}
+if [ "$SOAK_SECONDS" -gt 0 ]; then
+  # Build the touch driver while Android boots.
+  (
+    set -e
+    cd "$WORK"
+    curl -fsSL --retry 3 -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/latest/download/xcodegen.zip
+    unzip -qo xcodegen.zip -d xcodegen-tool
+    rm -rf soak && cp -R "$HERE/soak" soak
+    (cd soak && "$WORK/xcodegen-tool/xcodegen/bin/xcodegen" generate)
+    xcodebuild build-for-testing -project soak/Soak.xcodeproj -scheme Soak \
+      -destination "id=$UDID" -derivedDataPath "$WORK/soak-dd" CODE_SIGNING_ALLOWED=NO
+  ) > "$OUT/soak-build.log" 2>&1 &
+  SOAK_BUILD=$!
+fi
 
 shot() { xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 && echo "screenshot $1"; }
 crashes() {
@@ -132,6 +147,9 @@ while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   echo "t=${elapsed}s console lines=$(wc -l < "$OUT/console-start.txt" | tr -d ' ') last stats: $(grep 'Andarium stats' "$OUT/console-start.txt" | tail -1)"
   grep -a 'Andarium: boot reached' "$OUT/console-start.txt" | tail -1
   if ! alive; then echo "RESULT start: app ended at about ${elapsed}s"; ENDED=1; break; fi
+  if [ "$SOAK_SECONDS" -gt 0 ] && grep -aq 'boot reached ready' "$OUT/console-start.txt"; then
+    echo "Android ready at about ${elapsed}s; soak follows"; sleep 20; break
+  fi
   if grep -aq 'Andarium: runtime returned' "$OUT/console-start.txt"; then
     echo "RESULT start: the guest runtime returned at about ${elapsed}s"
     ENDED=1
@@ -139,6 +157,38 @@ while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   fi
 done
 [ -z "${ENDED:-}" ] && echo "RESULT start: app still running after ${elapsed}s"
+if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached ready' "$OUT/console-start.txt"; then
+  stage "soak: ${SOAK_SECONDS}s of flings in Android's language list"
+  if ! wait "$SOAK_BUILD"; then
+    echo "RESULT soak: the touch driver did not build"; tail -40 "$OUT/soak-build.log"
+  else
+    first=$(wc -l < "$OUT/console-start.txt" | tr -d ' ')
+    soak_began=$(date +%s)
+    TEST_RUNNER_ANDARIUM_BUNDLE="$BUNDLE" TEST_RUNNER_SOAK_SECONDS="$SOAK_SECONDS" \
+      xcodebuild test-without-building -project "$WORK/soak/Soak.xcodeproj" -scheme Soak \
+      -destination "id=$UDID" -derivedDataPath "$WORK/soak-dd" \
+      > "$OUT/soak-test.log" 2>&1 &
+    SOAK_TEST=$!
+    shots=0
+    while kill -0 "$SOAK_TEST" 2>/dev/null; do
+      sleep 15
+      t=$(( $(date +%s) - soak_began ))
+      if [ $(( t / 60 )) -ge "$shots" ]; then
+        shot "soak-$(printf '%02d' "$shots")m"; shots=$((shots + 1))
+      fi
+      echo "soak t=${t}s $(grep -a 'Andarium stats' "$OUT/console-start.txt" | tail -1) $(grep -a '^SOAK\|SOAK ' "$OUT/soak-test.log" | tail -1 | cut -c1-80)"
+      { echo "soak elapsed=$t"; ps -axo pid=,rss=,comm= | grep -E 'Andarium.app/Andarium|SimMetalHost'; } >> "$OUT/host-resources.txt"
+      if ! alive; then echo "RESULT soak: app ended at about ${t}s of the soak"; ENDED=1; break; fi
+      if [ "$t" -gt $(( SOAK_SECONDS + 600 )) ]; then echo "soak driver overran"; kill "$SOAK_TEST"; break; fi
+    done
+    wait "$SOAK_TEST"; SOAK_STATUS=$?
+    last=$(wc -l < "$OUT/console-start.txt" | tr -d ' ')
+    grep -a "SOAK \|error\|failed\|passed" "$OUT/soak-test.log" | grep -v "^ *$" | tail -25 | cut -c1-200
+    python3 "$HERE/soak_report.py" "$OUT/console-start.txt" "$first" "$last" "$OUT/soak.json"
+    alive && [ -z "${ENDED:-}" ] && echo "RESULT soak: app alive after $(( $(date +%s) - soak_began ))s, driver exit $SOAK_STATUS"
+    shot "soak-end"
+  fi
+fi
 echo "SUMMARY $DEVICE_TYPE iOS $IOS_MAJOR ($RUNTIME): window=$(grep -ac 'UML: cannot reserve' "$OUT/console-start.txt") refusals, kernel=$(grep -ac 'boot reached kernelRunning\|boot reached androidStarting' "$OUT/console-start.txt"), screen=$(grep -ac 'boot reached screenStarting' "$OUT/console-start.txt"), first-frame=$(grep -ac 'first frame copied' "$OUT/console-start.txt"), ready=$(grep -ac 'boot reached ready' "$OUT/console-start.txt"), stopped=$(grep -ac 'runtime returned' "$OUT/console-start.txt")"
 host_memory() { vm_stat | awk '/Pages free|Pages inactive|Pages wired|Pages occupied by compressor|Swapouts/ {printf "%s %s; ", $0, ""}'; echo; }
 echo "host memory: $(host_memory)"; sysctl -n vm.swapusage
