@@ -176,6 +176,9 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
       for wait in $(seq 1 120); do
         grep -aq 'SOAK .* list opened' "$OUT/soak-test.log" 2>/dev/null && break; sleep 2
       done
+      # Where the app's threads are while the list moves: ten seconds of
+      # host-side samples, taken before the recording.
+      sample "$(pgrep -f 'Andarium.app/Andarium' | head -1)" 10 -file "$OUT/soak-sample.txt" > /dev/null 2>&1
       xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/soak-video.mp4" > "$OUT/soak-video.log" 2>&1 &
       recorder=$!
       sleep 90
