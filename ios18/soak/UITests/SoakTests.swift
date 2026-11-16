@@ -24,9 +24,21 @@ final class SoakTests: XCTestCase {
             app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
         }
 
+        // The app's own alerts would cover the guest's screen (in the Simulator
+        // the keychain refuses the adb key, which raises the rotation alert).
+        func dismissAlerts() {
+            let button = app.alerts.buttons.firstMatch
+            if button.exists {
+                log("alert dismissed: \(app.alerts.firstMatch.label)")
+                button.tap()
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+
         log("idle baseline begin")
         Thread.sleep(forTimeInterval: 30)
         log("idle baseline end")
+        dismissAlerts()
 
         // "English (United States)" on the first setup screen opens a long list.
         point(0.4, pad ? 0.79 : 0.675).tap()
@@ -48,6 +60,7 @@ final class SoakTests: XCTestCase {
             flings += 1
             if flings % 6 == 0 {
                 log("flings \(flings)")
+                dismissAlerts()
                 Thread.sleep(forTimeInterval: 2)
             } else {
                 Thread.sleep(forTimeInterval: 0.4)
