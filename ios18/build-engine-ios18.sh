@@ -31,6 +31,7 @@ python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/window_patch.py" "$UPSTREAM"
+python3 "$HERE/memfit_patch.py" "$UPSTREAM"
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
