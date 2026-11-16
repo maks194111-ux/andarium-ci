@@ -34,6 +34,7 @@ python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
+if [ "${PROFILES:-all}" = video ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
   stage "mapping wait: original correctness tests under both policies"
   bash "$HERE/test_mapping_wait.sh" "$UPSTREAM"
@@ -553,9 +554,102 @@ watch_gapps() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ]; then
+# A real-time recording of the guest's display on the Mac test executable.
+# Arguments: name, release directory, what the image is.
+# The frames come from the engine's own mirror (frame_record_patch.py), at most
+# 60 a second, 720 pixels wide; the guest renders 2048x2732. Setup Wizard is
+# closed over adb before the recording, which a person would do by hand.
+record_video() {
+  local name=$1 release=$2 label=$3
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  local record="$WORK/$name.frames" events="$dir/events.txt"
+  local x=1024 low=2049 high=683
+  stage "video $name: $label, RAM 3G, 60 Hz, 2048x2732, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=60; unset UML_MEMORY_LIMIT_MIB
+  rm -f "$record" "$record.on" "$events"
+  mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
+  local started=$(date +%s) booted=0 i
+  UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
+    --display offscreen --offscreen-mirror 720@60 --width 2048 --height 2732 --dpi 264 --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 120); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; tail -5 "$dir/launcher.log" | cut -c1-200; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then
+      booted=1; note "$name: boot_completed after about $(( $(date +%s) - started )) s"; break
+    fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed; no video"; RESULT=1
+    tail -25 "$dir/launcher.log" | cut -c1-220
+  else
+    sleep 60
+    guest exec-out screencap -p > "$dir/first-boot.png" 2>/dev/null
+    guest shell 'settings put global device_provisioned 1; settings put secure user_setup_complete 1
+      for wizard in org.lineageos.setupwizard com.google.android.setupwizard; do pm disable-user --user 0 $wizard; am force-stop $wizard; done
+      input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard
+      am start -W -a android.intent.action.MAIN -c android.intent.category.HOME' > "$dir/provision.txt" 2>&1
+    sleep 45
+    guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1
+    sleep 15
+    note "$name: before the recording: ART JIT=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n'), HOME=$(guest shell 'cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME' 2>/dev/null | tr -d '\r' | tail -1), front=$(guest shell 'dumpsys activity activities' 2>/dev/null | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -s ' ' | cut -c1-120)"
+    guest exec-out screencap -p > "$dir/before-recording.png" 2>/dev/null
+    guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1"
+    touch "$record.on"; sleep 2
+    mark "home screen, idle"; sleep 4
+    mark "Settings opens"
+    guest shell "am start -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 8
+    mark "Settings list, flings"
+    guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 250; sleep 1; done; for n in 1 2 3 4; do input swipe $x $high $x $low 250; sleep 1; done"
+    mark "Settings list, slow drags"
+    guest shell "for n in 1 2; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+    mark "notification shade, three times"
+    guest shell "for n in 1 2 3; do cmd statusbar expand-notifications; sleep 2; cmd statusbar collapse; sleep 2; done"
+    mark "Google Play opens"
+    guest shell "monkey -p com.android.vending -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1; sleep 25
+    mark "back to the home screen"
+    guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 6
+    mark "application list opens and scrolls"
+    guest shell "input swipe $x $low $x $high 300; sleep 4; input swipe $x $low $x $high 600; sleep 2; input swipe $x $high $x $low 600; sleep 2; input keyevent KEYCODE_HOME"; sleep 5
+    mark "end"
+    sleep 1; rm -f "$record.on"
+    guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
+    guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-settings.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-settings.txt" 2>&1
+    python3 "$HERE/framestats.py" "$name / Settings during the recording" "$dir/framestats-settings.txt" || true
+    grep -E "Total frames rendered|Janky frames|percentile" "$dir/gfxinfo-settings.txt" | head -8
+    guest shell 'pm list packages | grep -E "com.android.vending|com.google.android.gms$"; grep -E "MemTotal|MemAvailable" /proc/meminfo' 2>&1 | tr -d '\r'
+    guest logcat -d > "$dir/logcat.txt" 2>&1
+    echo "$name: fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$dir/logcat.txt")"
+    grep -E "FATAL EXCEPTION|Fatal signal|ANR in" "$dir/logcat.txt" | cut -c1-200 | head -12
+  fi
+  kill -0 "$launcher" 2>/dev/null && echo "$name: emulator still running at the end" || { echo "$name: EMULATOR EXITED DURING THE TEST"; RESULT=1; }
+  grep -E "Frame record|Offscreen display" "$dir/launcher.log" | cut -c1-200
+  kill -INT "$launcher" 2>/dev/null; sleep 20; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"; sleep 5
+  if [ -s "$record" ]; then
+    ls -la "$record"
+    PYTHONPATH="$WORK/video-tools${PYTHONPATH:+:$PYTHONPATH}" python3 "$HERE/frames_to_video.py" \
+      "$record" "$dir/$name.mp4" "$dir/frame-times.csv" "$events" 2>&1 | tee "$dir/video-summary.txt" || RESULT=1
+    [ -s "$dir/$name.mp4" ] || { note "RESULT: $name: the video was not written"; RESULT=1; }
+    rm -f "$record"
+  elif [ "$booted" = 1 ]; then
+    note "RESULT: $name: Android booted but no frame was recorded"; RESULT=1
+  fi
+  tail -n +1 "$dir/video-summary.txt" 2>/dev/null | head -3 | while read -r line; do echo "::notice title=$name::$line"; done
+}
+if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ]; then
   source_url="${GAPPS_IPA_URL:-}"
-  if [ "${PROFILES:-all}" = aot ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
+  if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
+  if [ "${PROFILES:-all}" = video ]; then
+    stage "tools for the video (ffmpeg, LZ4 reader)"
+    command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
+    ffmpeg -version | head -1 || { echo "RESULT: ffmpeg could not be installed."; exit 1; }
+    python3 -m pip install --quiet --target "$WORK/video-tools" lz4==4.4.4 || { echo "RESULT: the LZ4 reader could not be installed."; exit 1; }
+  fi
   [ -n "$source_url" ] || { echo "RESULT: no package address was provided."; exit 1; }
   stage "the Google image of the phone build"
   curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$source_url" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
@@ -567,6 +661,24 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
   shasum -a 256 "$GAPPS_RELEASE/guest/system.img" > "$OUT/baseline-system-sha256.txt"
+  if [ "${PROFILES:-all}" = video ]; then
+    record_video video-fix9 "$GAPPS_RELEASE" "Google image of the FIX9 build"
+    if [ "${VIDEO_AOT:-1}" = 1 ] && [ -n "${GAPPS_AOT_RELEASE_URL:-}" ]; then
+      AOT_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-full-aot-experiment"
+      cp -R "$STOCK" "$AOT_RELEASE"
+      if curl -fsSL --retry 3 -o "$WORK/aot-release.zip" "$GAPPS_AOT_RELEASE_URL" 2>/dev/null; then
+        for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+          unzip -p "$WORK/aot-release.zip" "$entry" > "$AOT_RELEASE/$entry"
+        done
+        rm -f "$WORK/aot-release.zip"
+        record_video video-aot "$AOT_RELEASE" "experimental image compiled ahead of time, ART JIT off"
+      else
+        note "video-aot: the experimental image could not be fetched; only FIX9 was recorded"
+      fi
+    fi
+    echo "RESULT: video recording finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = aot ]; then
     [ -n "${GAPPS_AOT_RELEASE_URL:-}" ] || { echo "RESULT: no private AOT release address"; exit 1; }
     actual=$(awk '{print $1}' "$OUT/baseline-system-sha256.txt")
