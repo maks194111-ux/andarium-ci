@@ -6,6 +6,9 @@ on:
       engine_run:
         description: Run id of the engine build that holds the engine-ios18 artifact
         required: true
+      presentation:
+        description: Enable experimental adaptive presentation pacing
+        default: "0"
 permissions:
   contents: read
   actions: read
@@ -38,6 +41,8 @@ jobs:
           path: ${{ runner.temp }}/engine-download
       - name: Build the unsigned app for iOS 18
         shell: bash
+        env:
+          PRESENTATION_EXPERIMENT: ${{ inputs.presentation }}
         run: |
           set -euo pipefail
           bash ci/ios18/build-app-ios18.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/engine-download/engine-ios18.tar.gz"

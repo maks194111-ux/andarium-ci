@@ -32,6 +32,11 @@ python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/window_patch.py" "$UPSTREAM"
 python3 "$HERE/memfit_patch.py" "$UPSTREAM"
+stage "presentation metrics and opt-in adaptive pacing"
+c++ -std=c++20 -O2 -pthread "$HERE/test_frame_delivery_metrics.cpp" -o "$WORK/test-frame-delivery"
+"$WORK/test-frame-delivery"
+python3 "$HERE/display_pacing_patch.py" "$UPSTREAM"
+python3 "$HERE/presentation_metrics_patch.py" "$UPSTREAM"
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment

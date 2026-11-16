@@ -17,6 +17,20 @@ python3 "$HERE/app_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" app
 python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
 python3 "$HERE/report_patch.py" "$UPSTREAM"
+python3 "$HERE/device_capabilities_patch.py" "$UPSTREAM"
+if [ "${PRESENTATION_EXPERIMENT:-0}" = 1 ]; then
+  python3 - <<'PY'
+from pathlib import Path
+path = Path("Andarium/Andarium/Shared/AndariumApp.swift")
+text = path.read_text()
+marker = "        MesaShaderCache.configureBeforeFirstUse()\n"
+if text.count(marker) != 1:
+    raise SystemExit("presentation experiment: app configuration not found")
+path.write_text(text.replace(marker, marker +
+    '        setenv("UML_DISPLAY_PACING", "1", 1)\n'
+    '        setenv("UML_PRESENT_METRICS", "1", 1)\n'))
+PY
+fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" app
 # The bundle's system image directory: filled in when the IPA is assembled.
 mkdir -p .build/andarium-system
