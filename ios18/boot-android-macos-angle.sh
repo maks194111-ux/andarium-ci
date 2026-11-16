@@ -32,6 +32,7 @@ python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
+python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 # The launcher script passes the tier threshold named in UML_JIT_TIER.
 python3 - <<'PY3'
@@ -249,6 +250,11 @@ PYS
       pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
       rm -rf "$WORK/instance-$name"; sleep 5
       return 0
+    fi
+    if [ "${CLOCK_COMPARE:-0}" = 1 ] && [ -f "$WORK/probe/micro" ]; then
+      guest push "$WORK/probe/micro" /data/local/tmp/micro >/dev/null 2>&1
+      guest shell 'chmod 755 /data/local/tmp/micro; /data/local/tmp/micro' 2>&1 | tr -d '\r' | sed "s/^micro/$name:/"
+      guest shell 'a=$(cat /proc/uptime); date +%s.%N; cat /proc/uptime' 2>&1 | tr -d '\r' | tr '\n' ' '; echo
     fi
     if [ "${BENCH:-0}" = 1 ]; then
       # Processor-bound work in one process: how fast does each engine run
@@ -550,6 +556,14 @@ if [ "${PROFILES:-all}" = sample ]; then
   export SAMPLE=1
   profile sample 4G 120 0 720 1280 320 gadgets
   echo "RESULT: sampled scroll finished."; exit 0
+fi
+if [ "${PROFILES:-all}" = clock ]; then
+  # The same build twice in one job: time queries through the guest kernel,
+  # then answered by the engine.
+  export CLOCK_COMPARE=1
+  UML_FAST_CLOCK=0 profile clock-kernel 4G 60 0 720 1280 320 gadgets
+  profile clock-fast 4G 60 0 720 1280 320 gadgets
+  echo "RESULT: clock comparison finished (status $RESULT)."; exit 0
 fi
 if [ "${PROFILES:-all}" = bench ]; then
   export BENCH=1
