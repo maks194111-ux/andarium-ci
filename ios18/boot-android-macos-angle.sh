@@ -226,7 +226,7 @@ profile() {
       sleep 20; cp "$dir/samples.txt" "$dir/samples-before.txt"
       # Host-side stacks of the emulator during the scroll: where its guest
       # processor threads wait.
-      sample "$(pgrep -f uml-darwin-android17 | head -1)" 20 -file "$dir/host-sample.txt" > /dev/null 2>&1 &
+      sample "$(ps -ax -o pid=,comm= | awk '$2 ~ /\/uml-darwin-android17$/ {print $1; exit}')" 20 -file "$dir/host-sample.txt" > /dev/null 2>&1 &
       host_sampler=$!
       guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null"
       guest shell "for n in 1 2 3 4 5 6 7 8 9 10 11 12; do input swipe $sx $slow $sx $shigh 1200; input swipe $sx $shigh $sx $slow 1200; done"
