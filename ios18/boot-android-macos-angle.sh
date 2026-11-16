@@ -32,8 +32,8 @@ python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
-python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
+python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 # The launcher script passes the tier threshold named in UML_JIT_TIER.
 python3 - <<'PY3'
 from pathlib import Path
