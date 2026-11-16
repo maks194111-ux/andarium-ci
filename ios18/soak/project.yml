@@ -1,0 +1,38 @@
+name: Soak
+options:
+  bundleIdPrefix: local.andarium.soak
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: "5.0"
+targets:
+  SoakHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    info:
+      path: Host/Info.plist
+      properties:
+        UILaunchScreen: {}
+  SoakUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: SoakHost
+    settings:
+      base:
+        TEST_TARGET_NAME: SoakHost
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Soak:
+    build:
+      targets:
+        SoakHost: all
+        SoakUITests: [test]
+    test:
+      targets: [SoakUITests]
