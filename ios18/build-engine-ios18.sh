@@ -105,6 +105,7 @@ mkdir -p .build/kernel/artifacts
 curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
+python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
 python3 "$HERE/fastclock_patch.py" --check .build/kernel/artifacts/*/kernel/System.map
 ls .build/kernel/artifacts .build/kernel/artifacts/* | head -30
 
