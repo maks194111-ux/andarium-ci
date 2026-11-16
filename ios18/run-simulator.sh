@@ -169,6 +169,22 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
       -destination "id=$UDID" -derivedDataPath "$WORK/soak-dd" \
       > "$OUT/soak-test.log" 2>&1 &
     SOAK_TEST=$!
+    # A screen recording of the first two minutes of flings. The hosted Mac may
+    # have no video encoder; then a series of screenshots stands in for it.
+    (
+      sleep 45
+      xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/soak-video.mp4" > "$OUT/soak-video.log" 2>&1 &
+      recorder=$!
+      sleep 120
+      kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
+      if [ ! -s "$OUT/soak-video.mp4" ]; then
+        echo "no video file; taking frames instead" >> "$OUT/soak-video.log"
+        mkdir -p "$OUT/soak-frames"
+        for frame in $(seq -w 1 150); do
+          xcrun simctl io "$UDID" screenshot --type=jpeg "$OUT/soak-frames/$frame.jpg" >/dev/null 2>&1
+        done
+      fi
+    ) &
     shots=0
     while kill -0 "$SOAK_TEST" 2>/dev/null; do
       sleep 15
