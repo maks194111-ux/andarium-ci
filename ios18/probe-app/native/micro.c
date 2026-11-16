@@ -143,5 +143,29 @@ int main(int argc, char **argv) {
     ROW("system call: mmap+munmap one page", 100000L, { void *m = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); munmap(m, 4096); });
     ROW("page fault: touch a fresh page", 50000L, { char *m = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); m[0] = 1; munmap(m, 4096); });
     KEEP(sum);
+    if (only == NULL) {
+        // Do the clocks still agree with each other? A busy loop of about
+        // 0.2 s must show the same length on the thread, process and
+        // monotonic clocks, and gettimeofday must match REALTIME.
+        struct timespec m0, m1, c0, c1, p0, p1, real;
+        struct timeval day;
+        syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &m0);
+        syscall(SYS_clock_gettime, CLOCK_THREAD_CPUTIME_ID, &c0);
+        syscall(SYS_clock_gettime, CLOCK_PROCESS_CPUTIME_ID, &p0);
+        volatile unsigned long spin = 0;
+        do {
+            for (int i = 0; i < 100000; i++) spin += i;
+            syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &m1);
+        } while ((m1.tv_sec - m0.tv_sec) * 1e9 + (m1.tv_nsec - m0.tv_nsec) < 2e8);
+        syscall(SYS_clock_gettime, CLOCK_THREAD_CPUTIME_ID, &c1);
+        syscall(SYS_clock_gettime, CLOCK_PROCESS_CPUTIME_ID, &p1);
+        syscall(SYS_clock_gettime, CLOCK_REALTIME, &real);
+        syscall(SYS_gettimeofday, &day, NULL);
+        printf("micro check: busy loop monotonic %.1f ms, thread clock %.1f ms, process clock %.1f ms; gettimeofday minus REALTIME %.3f ms\n",
+               ((m1.tv_sec - m0.tv_sec) * 1e9 + (m1.tv_nsec - m0.tv_nsec)) / 1e6,
+               ((c1.tv_sec - c0.tv_sec) * 1e9 + (c1.tv_nsec - c0.tv_nsec)) / 1e6,
+               ((p1.tv_sec - p0.tv_sec) * 1e9 + (p1.tv_nsec - p0.tv_nsec)) / 1e6,
+               (day.tv_sec - real.tv_sec) * 1e3 + (day.tv_usec * 1e3 - real.tv_nsec) / 1e6);
+    }
     return 0;
 }
