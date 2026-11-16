@@ -5,7 +5,8 @@
 The guest kernel has no vDSO, so every clock_gettime of every Android thread
 leaves the interpreter, saves the processor state, enters the kernel's system
 call path and comes back: about 750 ns of guest time where a phone spends
-about 20 ns.  Android's interface code asks for the time constantly; in a
+about 20 ns.  gettimeofday and the coarse, raw and thread clocks go the same
+way.  Android's interface code asks for the time constantly; in a
 sampled list scroll it was the largest single item of the app's processor
 time.
 
@@ -30,6 +31,10 @@ SYMBOLS = {
     "posix_get_realtime_timespec": 0xC002A7624,
     "posix_get_monotonic_timespec": 0xC002A78B4,
     "posix_get_boottime_timespec": 0xC002A7B84,
+    "posix_get_monotonic_raw": 0xC002A7A04,
+    "posix_get_realtime_coarse": 0xC002A7AD0,
+    "posix_get_monotonic_coarse": 0xC002A7AEC,
+    "thread_cpu_clock_get": 0xC002A8C50,
 }
 
 if sys.argv[1] == "--check":
@@ -103,6 +108,7 @@ namespace fast_clock {
  * them against its System.map). */
 """ + addresses + """
 constexpr std::uint64_t nr_clock_gettime = 113;
+constexpr std::uint64_t nr_gettimeofday = 169;
 
 [[nodiscard]] inline bool enabled() noexcept
 {
@@ -113,12 +119,29 @@ constexpr std::uint64_t nr_clock_gettime = 113;
 \treturn value;
 }
 
-/* A clock_gettime the guest just asked for, answered by the kernel's own
+/* The kernel's reader for a clock; zero for clocks left to the kernel
+ * (process time, alarm clocks, dynamic clocks). */
+[[nodiscard]] inline std::uintptr_t reader_of(std::int32_t clock) noexcept
+{
+\tswitch (clock) {
+\tcase 0: return fast_posix_get_realtime_timespec;
+\tcase 1: return fast_posix_get_monotonic_timespec;
+\tcase 3: return fast_thread_cpu_clock_get;
+\tcase 4: return fast_posix_get_monotonic_raw;
+\tcase 5: return fast_posix_get_realtime_coarse;
+\tcase 6: return fast_posix_get_monotonic_coarse;
+\tcase 7: return fast_posix_get_boottime_timespec;
+\tdefault: return 0;
+\t}
+}
+
+/* A time query the guest just asked for, answered by the kernel's own
  * reader on this kernel thread. False leaves the system call to the kernel. */
 template<typename Cpu, typename Memory>
 [[nodiscard]] inline bool answer(Cpu &cpu, Memory &memory) noexcept
 {
-\tif (cpu.registers[8] != nr_clock_gettime || !enabled())
+\tconst auto number = cpu.registers[8];
+\tif ((number != nr_clock_gettime && number != nr_gettimeofday) || !enabled())
 \t\treturn false;
 \tconst auto bias = ::uml::runtime::fast_clock_kernel_bias.load(
 \t\tstd::memory_order_relaxed);
@@ -126,26 +149,26 @@ template<typename Cpu, typename Memory>
 \t\treturn false;
 \tusing posix_reader = int (*)(int, std::int64_t *);
 \tstd::int64_t time[2]{};
-\tconst auto clock = static_cast<std::int32_t>(cpu.registers[0]);
-\tswitch (clock) {
-\tcase 0:
-\t\tif (reinterpret_cast<posix_reader>(
-\t\t\t    bias + fast_posix_get_realtime_timespec)(clock, time) != 0)
+\tif (number == nr_gettimeofday) {
+\t\t/* Only the plain form: a time value and no time zone. */
+\t\tif (cpu.registers[0] == 0 || cpu.registers[1] != 0)
 \t\t\treturn false;
-\t\tbreak;
-\tcase 1:
 \t\tif (reinterpret_cast<posix_reader>(
-\t\t\t    bias + fast_posix_get_monotonic_timespec)(clock, time) != 0)
+\t\t\t    bias + fast_posix_get_realtime_timespec)(0, time) != 0)
 \t\t\treturn false;
-\t\tbreak;
-\tcase 7:
-\t\tif (reinterpret_cast<posix_reader>(
-\t\t\t    bias + fast_posix_get_boottime_timespec)(clock, time) != 0)
+\t\ttime[1] /= 1000;
+\t\tif (!memory.write(cpu.registers[0],
+\t\t\t    std::as_bytes(std::span<const std::int64_t>{time})))
 \t\t\treturn false;
-\t\tbreak;
-\tdefault:
-\t\treturn false;
+\t\tcpu.registers[0] = 0;
+\t\treturn true;
 \t}
+\tconst auto clock = static_cast<std::int32_t>(cpu.registers[0]);
+\tconst auto reader = reader_of(clock);
+\tif (reader == 0)
+\t\treturn false;
+\tif (reinterpret_cast<posix_reader>(bias + reader)(clock, time) != 0)
+\t\treturn false;
 \tif (!memory.write(cpu.registers[1],
 \t\t    std::as_bytes(std::span<const std::int64_t>{time})))
 \t\treturn false;
