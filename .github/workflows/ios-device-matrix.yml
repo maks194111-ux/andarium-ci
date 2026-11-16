@@ -36,6 +36,7 @@ jobs:
           - { device: iPhone-15, ios: "18", runner: macos-15, memory: "2048" }
           - { device: iPhone-16-Pro, ios: "18", runner: macos-15, memory: "3072" }
           - { device: iPad-Pro-auto, ios: "27", runner: xcode-27, memory: "3072" }
+          - { device: iPad-Pro-auto, ios: "18", runner: macos-15, memory: "3072" }
     name: ${{ matrix.device }} iOS ${{ matrix.ios }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 80
