@@ -34,6 +34,11 @@ python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
+if [ "${PROFILES:-all}" = mapping ]; then
+  stage "mapping wait: original correctness tests under both policies"
+  bash "$HERE/test_mapping_wait.sh" "$UPSTREAM"
+  python3 "$HERE/mapping_wait_patch.py" "$UPSTREAM"
+fi
 # The launcher script passes the tier threshold named in UML_JIT_TIER.
 python3 - <<'PY3'
 from pathlib import Path
@@ -183,7 +188,7 @@ profile() {
   if [ "$limit" != 0 ]; then export UML_MEMORY_LIMIT_MIB=$limit; else unset UML_MEMORY_LIMIT_MIB; fi
   if [ "${SAMPLE:-0}" = 1 ]; then export DARWIN_UML_GUEST_SAMPLES="$dir/samples.txt:2000"; fi
   local started=$(date +%s)
-  python3 tools/boot_android.py --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
+  python3 tools/boot_android.py ${GAPPS_RELEASE:+--release "$GAPPS_RELEASE"} --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
     --display offscreen --width "$width" --height "$height" --dpi "$dpi" --audio-output null \
     --cpus "$CPUS" --memory "$memory" --engine "$engine" --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
@@ -204,6 +209,11 @@ profile() {
     sleep 60
     # How much of the kernel's own mapping allowance (now 1 GiB) is in use.
     note "$name: $(guest shell 'grep -E "MemTotal|VmallocTotal|VmallocUsed" /proc/meminfo; echo threads $(ps -AT | wc -l)' 2>&1 | tr -s ' \r\n' ' ')"
+    if [ "${PROFILES:-all}" = mapping ]; then
+      guest shell 'getprop; pm list features; dumpsys SurfaceFlinger' > "$dir/compatibility.txt" 2>&1
+      guest shell 'cat /proc/meminfo; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/diskstats; dumpsys cpuinfo' > "$dir/resources-before.txt" 2>&1
+      ps -ax -o pid=,%cpu=,rss=,comm= | grep '/uml-darwin-android17$' > "$dir/host-resources-before.txt" || true
+    fi
     if [ "${SAMPLE:-0}" = 1 ]; then
       # The engine's own sampler, read from the host: which host code (guest
       # kernel, translation, memory paths) and which guest functions the
@@ -318,6 +328,25 @@ PYS
     guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/gfxinfo-systemui.txt" 2>&1
     guest shell "dumpsys gfxinfo com.android.systemui framestats" > "$dir/framestats-systemui.txt" 2>&1
     guest shell "dumpsys SurfaceFlinger --timestats -disable"
+    if [ "${PROFILES:-all}" = mapping ]; then
+      guest shell 'cat /proc/meminfo; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/diskstats; dumpsys cpuinfo' > "$dir/resources-after.txt" 2>&1
+      ps -ax -o pid=,%cpu=,rss=,comm= | grep '/uml-darwin-android17$' > "$dir/host-resources-after.txt" || true
+      # Installability and launch are independent of Play listing visibility.
+      # No account, contacts, camera access or sign-in is required for this.
+      guest install -r "$WORK/telegram.apk" > "$dir/telegram-install.txt" 2>&1
+      if grep -q Success "$dir/telegram-install.txt"; then
+        local telegram_package
+        telegram_package=$(guest shell pm list packages | tr -d '\r' | sed -n 's/^package:\(org\.telegram\.messenger\(\.web\)\?\)$/\1/p' | head -1)
+        if [ -n "$telegram_package" ]; then
+          guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $telegram_package" > "$dir/telegram-start.txt" 2>&1
+          sleep 15
+          guest shell "pidof $telegram_package; dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'" > "$dir/telegram-alive.txt" 2>&1
+          guest exec-out screencap -p > "$dir/telegram.png" 2>/dev/null
+          guest shell "am force-stop $telegram_package" >/dev/null 2>&1
+        fi
+      fi
+      guest logcat -d > "$dir/logcat.txt" 2>&1
+    fi
     guest exec-out screencap -p > "$dir/after.png"
     guest shell "cat /proc/meminfo | head -20; cat /proc/swaps; cat /proc/pressure/memory" > "$dir/guest-memory.txt" 2>&1
     for part in scroll shade; do
@@ -512,7 +541,7 @@ watch_gapps() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-if [ "${PROFILES:-all}" = gapps ]; then
+if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ]; then
   [ -n "${GAPPS_IPA_URL:-}" ] || { echo "RESULT: no package address was provided."; exit 1; }
   stage "the Google image of the phone build"
   curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$GAPPS_IPA_URL" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
@@ -523,6 +552,19 @@ if [ "${PROFILES:-all}" = gapps ]; then
     unzip -p "$WORK/gapps.ipa" "Payload/Andarium.app/andarium-system/$entry" > "$GAPPS_RELEASE/$entry"
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
+  if [ "${PROFILES:-all}" = mapping ]; then
+    # Same binary, image, geometry and CPU count, alternating order to reduce
+    # host drift. The original algorithm is FIX9's. No sampling during timing.
+    CPUS=4
+    curl -fL --retry 3 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk
+    shasum -a 256 "$WORK/telegram.apk" > "$OUT/telegram-download-sha256.txt"
+    UML_MAPPING_WAIT=0 profile mapping-A1 3G 60 0 828 1792 326 gadgets
+    UML_MAPPING_WAIT=1 profile mapping-B1 3G 60 0 828 1792 326 gadgets
+    UML_MAPPING_WAIT=1 profile mapping-B2 3G 60 0 828 1792 326 gadgets
+    UML_MAPPING_WAIT=0 profile mapping-A2 3G 60 0 828 1792 326 gadgets
+    echo "RESULT: Google image mapping-wait ABBA comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   watch_gapps gapps-1408 1408M 2098 6 ${WATCH_MINUTES:-28}
   echo "RESULT: Google image watch finished (status $RESULT)."; exit "$RESULT"
 fi
