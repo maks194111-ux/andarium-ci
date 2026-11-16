@@ -568,6 +568,13 @@ if [ "${PROFILES:-all}" = sample ]; then
   profile sample 4G 120 0 720 1280 320 gadgets
   echo "RESULT: sampled scroll finished."; exit 0
 fi
+if [ "${PROFILES:-all}" = cpus8 ]; then
+  # A device report: an iPad with 8 guest processors and 3 GiB stopped ten
+  # seconds into its start. The same engine with those two numbers.
+  CPUS=8
+  profile cpus8 3G 60 0 720 1280 320 gadgets
+  echo "RESULT: eight-processor start finished (status $RESULT)."; exit 0
+fi
 if [ "${PROFILES:-all}" = clock ]; then
   # The same build twice in one job: time queries through the guest kernel,
   # then answered by the engine.
