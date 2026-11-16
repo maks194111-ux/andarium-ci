@@ -30,7 +30,45 @@ def edit(relative: str, changes) -> None:
 edit("darwin/runtime/native_kernel_layout.cpp", [
     ("""NativeKernelLayout prepare_native_kernel_layout(
 """,
-     """/* The most guest memory, at most `wanted_mib`, whose window this process can
+     """#if defined(__APPLE__)
+/* The free address ranges of at least 512 MiB and where the address space
+ * ends: what a refused window is measured against. */
+static void report_free_address_ranges() noexcept
+{
+vm_address_t cursor = 0;
+unsigned lines = 0;
+for (;;) {
+vm_address_t region = cursor;
+vm_size_t size = 0;
+vm_region_basic_info_data_64_t information {};
+mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+mach_port_t object = MACH_PORT_NULL;
+const kern_return_t result = vm_region_64(mach_task_self(), &region,
+&size, VM_REGION_BASIC_INFO_64,
+reinterpret_cast<vm_region_info_t>(&information), &count, &object);
+if (object != MACH_PORT_NULL)
+(void)mach_port_deallocate(mach_task_self(), object);
+if (result != KERN_SUCCESS || size == 0) {
+std::fprintf(stderr, "UML: address space: last region ends at %p\\n",
+reinterpret_cast<void *>(cursor));
+break;
+}
+if (region > cursor && region - cursor >= (vm_address_t{512} << 20) &&
+    lines < 24) {
+std::fprintf(stderr, "UML: address space: free %p-%p (%llu MiB)\\n",
+reinterpret_cast<void *>(cursor),
+reinterpret_cast<void *>(region),
+static_cast<unsigned long long>((region - cursor) >> 20));
+++lines;
+}
+cursor = region + size;
+}
+}
+#else
+static void report_free_address_ranges() noexcept {}
+#endif
+
+/* The most guest memory, at most `wanted_mib`, whose window this process can
  * reserve now; `wanted_mib` itself when even the smallest cannot be, so the
  * boot reports the refusal as before. The trial reservation is handed back:
  * the boot makes its own. */
@@ -55,19 +93,26 @@ if (!trial.valid)
 continue;
 munmap(reinterpret_cast<void *>(trial.window_start),
 host_reservation_length(trial.window_end - trial.window_start));
-if (mib != wanted_mib)
+if (mib != wanted_mib) {
+report_free_address_ranges();
 std::fprintf(stderr,
 "UML: no address window for %u MiB of guest memory; "
 "the device grants one for %u MiB at %p\\n",
 wanted_mib, mib,
 reinterpret_cast<void *>(trial.window_start));
+}
 return mib;
 }
+report_free_address_ranges();
 return wanted_mib;
 }
 
 NativeKernelLayout prepare_native_kernel_layout(
 """),
+])
+edit("darwin/runtime/native_kernel_layout.cpp", [
+    ("#include <cerrno>\n",
+     "#include <cerrno>\n#if defined(__APPLE__)\n#include <mach/mach.h>\n#endif\n"),
 ])
 edit("darwin/runtime/native_kernel_layout.hpp", [
     ("""[[nodiscard]] NativeKernelPlacement native_kernel_placement(
