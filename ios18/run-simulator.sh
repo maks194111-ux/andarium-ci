@@ -89,6 +89,11 @@ stage "$DEVICE_TYPE on iOS $IOS_MAJOR"
 UDID=$(xcrun simctl create "Andarium $DEVICE_TYPE" "$DEVICE_IDENTIFIER" "$RUNTIME") || { echo "RESULT: $DEVICE_TYPE cannot be created on $RUNTIME"; exit 1; }
 xcrun simctl boot "$UDID" || exit 1
 xcrun simctl bootstatus "$UDID" -b | tail -2
+# With no Simulator window the device's screen is refreshed only now and
+# then, and the app waits up to a second for each drawable. Open the window so
+# the screen is composited as on a desk.
+open -a Simulator --args -CurrentDeviceUDID "$UDID" && echo "Simulator window opened"
+sleep 10
 echo "device: $DEVICE_TYPE, runtime $RUNTIME, bundle $BUNDLE"
 xcrun simctl install "$UDID" "$APP" || { echo "INSTALL FAILED"; exit 1; }
 SOAK_SECONDS=${SOAK_SECONDS:-0}
