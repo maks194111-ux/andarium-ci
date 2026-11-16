@@ -131,6 +131,10 @@ for name in libEGL libGLESv2; do
 done
 
 stage "macOS host libraries"
+# Savannah answers 502 at times. The sources are pinned by commit, so a mirror
+# gives the same content or the checkout fails.
+git config --global url."https://github.com/coreutils/gnulib.git".insteadOf "https://git.savannah.gnu.org/git/gnulib.git"
+git config --global url."git://git.git.savannah.gnu.org/libiconv.git".insteadOf "https://git.savannah.gnu.org/git/libiconv.git"
 bash dependencies/prepare.sh --product macos
 bash dependencies/build.sh
 
