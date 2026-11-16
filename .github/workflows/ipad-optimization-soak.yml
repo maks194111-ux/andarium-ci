@@ -8,6 +8,12 @@ on:
       soak_seconds:
         description: Duration of actual repeated touch interactions after Android is ready
         default: "1800"
+      watch_seconds:
+        description: Maximum initial boot observation
+        default: "1200"
+      startup_record_seconds:
+        description: Real-time startup video even when Android fails to become ready
+        default: "0"
 permissions:
   contents: read
   actions: read
@@ -42,6 +48,8 @@ jobs:
         env:
           IMAGE_KIND: aot
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
+          WATCH_SECONDS: ${{ inputs.watch_seconds }}
+          STARTUP_RECORD_SECONDS: ${{ inputs.startup_record_seconds }}
           GAPPS_FIX9_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
           GAPPS_AOT_RELEASE_URL: ${{ secrets.GAPPS_AOT_RELEASE_URL }}
         run: |
@@ -51,7 +59,7 @@ jobs:
             set +e
             bash ci/ios18/run-simulator.sh \
               "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
-              "$RUNNER_TEMP" 1200 "$RUNNER_TEMP/angle-sim" \
+              "$RUNNER_TEMP" "$WATCH_SECONDS" "$RUNNER_TEMP/angle-sim" \
               3072 iPad-Pro-auto 27
             result=$?
             printf '%s\n' "$result" > "$RUNNER_TEMP/simulator.exit.tmp"

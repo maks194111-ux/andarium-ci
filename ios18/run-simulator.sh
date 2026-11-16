@@ -149,6 +149,12 @@ if [ "${METAL_VALIDATION:-0}" = 1 ]; then
 fi
 SIMCTL_CHILD_ANDARIUM_START=normal SIMCTL_CHILD_ANDARIUM_STATS=1 \
   xcrun simctl launch --console-pty "$UDID" "$BUNDLE" > "$OUT/console-start.txt" 2>&1 &
+STARTUP_RECORDER=
+if [ "${STARTUP_RECORD_SECONDS:-0}" != 0 ]; then
+  bash "$HERE/record_simulator_video.sh" "$UDID" "$OUT/startup-video.mp4" \
+    "$STARTUP_RECORD_SECONDS" > "$OUT/startup-recording-status.txt" 2>&1 &
+  STARTUP_RECORDER=$!
+fi
 began=$(date +%s); elapsed=0; index=2
 while [ "$elapsed" -lt "$SECONDS_TO_WATCH" ]; do
   sleep 25; elapsed=$(( $(date +%s) - began ))
@@ -239,6 +245,9 @@ echo "--- last 60 lines"; tail -60 "$OUT/console-start.txt" | cut -c1-260
 echo "--- statistics lines"; grep 'Andarium stats' "$OUT/console-start.txt" | tail -15
 
 stage "crash reports"
+if [ -n "$STARTUP_RECORDER" ]; then
+  wait "$STARTUP_RECORDER" || echo "Startup recording failed; do not substitute screenshots for motion."
+fi
 sleep 10
 for report in $(crashes); do
   cp "$report" "$OUT/"; echo "CRASH REPORT $(basename "$report")"
