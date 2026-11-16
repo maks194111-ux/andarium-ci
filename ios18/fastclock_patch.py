@@ -157,7 +157,6 @@ template<typename Cpu, typename Memory>
 """),
     ("""\tconst auto result = engine->run(request);
 \tdebug_check_host_streaming_state();
-\tsave_cpu(cpu, mutable_registers, fp, sme, *tls);
 """,
      """\tauto result = engine->run(request);
 \t/* A time query is answered here and the guest runs on. */
@@ -165,7 +164,6 @@ template<typename Cpu, typename Memory>
 \t       !request.single_step && fast_clock::answer(cpu, memory))
 \t\tresult = engine->run(request);
 \tdebug_check_host_streaming_state();
-\tsave_cpu(cpu, mutable_registers, fp, sme, *tls);
 """),
 ])
 print("fast clock: patched")
