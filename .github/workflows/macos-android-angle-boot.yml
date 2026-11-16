@@ -7,7 +7,7 @@ on:
         description: Run id of the ANGLE build that holds the angle-metal artifact
         required: true
       profiles:
-        description: "all, first, jit, or tier"
+        description: "all, first, jit, tier, sample, bench, text, gapps or clock"
         default: "all"
       tiers:
         description: "tier thresholds in instructions, space separated"
