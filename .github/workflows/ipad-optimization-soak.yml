@@ -1,0 +1,88 @@
+name: iPad optimization boot and long soak
+on:
+  workflow_dispatch:
+    inputs:
+      app_run:
+        description: Adaptive-presentation app build
+        required: true
+      soak_seconds:
+        description: Duration of actual repeated touch interactions after Android is ready
+        default: "1800"
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: andarium-ipad-optimization-soak
+  cancel-in-progress: true
+jobs:
+  ipad:
+    if: github.event.repository.private == false
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - name: Fetch public test sources
+        run: |
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
+      - uses: actions/download-artifact@v4
+        with:
+          name: andarium-ios18-app-without-system-image
+          run-id: ${{ inputs.app_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/app-download
+      - uses: actions/download-artifact@v4
+        with:
+          name: angle-metal-simulator
+          run-id: "43700644337"
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/angle-sim-download
+      - name: Start the iPadOS 27 test with the private AOT image
+        env:
+          IMAGE_KIND: aot
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
+          GAPPS_FIX9_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
+          GAPPS_AOT_RELEASE_URL: ${{ secrets.GAPPS_AOT_RELEASE_URL }}
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
+          (
+            set +e
+            bash ci/ios18/run-simulator.sh \
+              "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" \
+              "$RUNNER_TEMP" 1200 "$RUNNER_TEMP/angle-sim" \
+              3072 iPad-Pro-auto 27
+            result=$?
+            printf '%s\n' "$result" > "$RUNNER_TEMP/simulator.exit.tmp"
+            mv "$RUNNER_TEMP/simulator.exit.tmp" "$RUNNER_TEMP/simulator.exit"
+          ) > "$RUNNER_TEMP/simulator-live.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/simulator.pid"
+      - name: Wait for the first app screenshot
+        run: python3 ci/ios18/wait_simulator_progress.py "$RUNNER_TEMP" "01-home.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipad-optimization-first-screen
+          path: ${{ runner.temp }}/simulator-report/01-home.png
+          if-no-files-found: ignore
+      - name: Collect the final runtime and touch-driver result
+        if: always()
+        run: |
+          set +e
+          for attempt in $(seq 1 840); do
+            [ -f "$RUNNER_TEMP/simulator.exit" ] && break
+            [ -f "$RUNNER_TEMP/simulator.pid" ] || break
+            kill -0 "$(cat "$RUNNER_TEMP/simulator.pid")" 2>/dev/null || break
+            sleep 5
+          done
+          cat "$RUNNER_TEMP/simulator-live.log"
+          mkdir -p "$RUNNER_TEMP/simulator-report"
+          cp "$RUNNER_TEMP/simulator-live.log" "$RUNNER_TEMP/simulator-report/harness.log"
+          [ -f "$RUNNER_TEMP/simulator.exit" ] || exit 1
+          exit "$(cat "$RUNNER_TEMP/simulator.exit")"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-optimization-soak-report
+          path: ${{ runner.temp }}/simulator-report
+          retention-days: 7

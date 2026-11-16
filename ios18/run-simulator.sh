@@ -42,10 +42,12 @@ stage "app and Android image"
 mkdir -p "$WORK/app" && cd "$WORK/app"
 unzip -qo "$APPZIP" || exit 1
 APP="$WORK/app/Payload/Andarium.app"
-if [ "${IMAGE_KIND:-stock}" = gapps ]; then
-  [ -n "${GAPPS_IPA_URL:-}" ] || { echo "RESULT: Google image URL not configured"; exit 1; }
+if [ "${IMAGE_KIND:-stock}" = gapps ] || [ "${IMAGE_KIND:-stock}" = aot ]; then
+  source_url="${GAPPS_IPA_URL:-}"
+  if [ "${IMAGE_KIND:-stock}" = aot ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
+  [ -n "$source_url" ] || { echo "RESULT: Google image URL not configured"; exit 1; }
   echo "Using the Google image from the supplied phone IPA, not the stock image."
-  curl -fsSL --retry 3 -o "$WORK/upstream.ipa" "$GAPPS_IPA_URL" 2>/dev/null || { echo "RESULT: Google image download failed"; exit 1; }
+  curl -fsSL --retry 3 -o "$WORK/upstream.ipa" "$source_url" 2>/dev/null || { echo "RESULT: Google image download failed"; exit 1; }
 else
 curl -fsSL --retry 3 -o "$WORK/upstream.ipa" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/Andarium-1.0-9.ipa || exit 1
@@ -54,6 +56,14 @@ rm -rf "$APP/andarium-system"
 (cd "$WORK" && unzip -qo upstream.ipa 'Payload/Andarium.app/andarium-system/*' -d upstream-ipa) || exit 1
 mv "$WORK/upstream-ipa/Payload/Andarium.app/andarium-system" "$APP/andarium-system"
 rm -rf "$WORK/upstream.ipa" "$WORK/upstream-ipa"
+if [ "${IMAGE_KIND:-stock}" = aot ]; then
+  [ -n "${GAPPS_AOT_RELEASE_URL:-}" ] || { echo "RESULT: AOT release not configured"; exit 1; }
+  curl -fsSL --retry 3 -o "$WORK/aot-release.zip" "$GAPPS_AOT_RELEASE_URL" 2>/dev/null || {
+    echo "RESULT: AOT release download failed"; exit 1;
+  }
+  python3 "$HERE/install_aot_release.py" "$WORK/aot-release.zip" "$APP/andarium-system" "$OUT/variant-check.json" || exit 1
+  rm -f "$WORK/aot-release.zip"
+fi
 ls -la "$APP/andarium-system" "$APP/andarium-system/guest"
 
 if [ -n "$ANGLE_SIM" ]; then
