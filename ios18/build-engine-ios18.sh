@@ -29,6 +29,7 @@ python3 "$HERE/engine_api_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
+python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/window_patch.py" "$UPSTREAM"
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
@@ -103,6 +104,7 @@ mkdir -p .build/kernel/artifacts
 curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
+python3 "$HERE/fastclock_patch.py" --check .build/kernel/artifacts/*/kernel/System.map
 ls .build/kernel/artifacts .build/kernel/artifacts/* | head -30
 
 stage "configure the device Android runtime"
