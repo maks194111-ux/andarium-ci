@@ -351,7 +351,7 @@ PYS
         local telegram_package
         telegram_package=$(guest shell pm list packages | tr -d '\r' | grep -E '^package:org\.telegram\.messenger(\.web)?$' | sed 's/^package://' | head -1)
         if [ -n "$telegram_package" ]; then
-          guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $telegram_package" > "$dir/telegram-start.txt" 2>&1
+          guest shell "am start -W -n \$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $telegram_package | tail -1)" > "$dir/telegram-start.txt" 2>&1
           sleep 15
           guest shell "pidof $telegram_package; dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity'" > "$dir/telegram-alive.txt" 2>&1
           guest exec-out screencap -p > "$dir/telegram.png" 2>/dev/null
@@ -804,7 +804,7 @@ GUEST
       note "$name: Telegram install: $(tail -1 "$dir/telegram-install.txt" | tr -d '\r' | cut -c1-80) in $(( $(date +%s) - began )) s"
       package=$(guest shell pm list packages | tr -d '\r' | grep -E '^package:org\.telegram\.messenger(\.web)?$' | sed 's/^package://' | head -1)
       if [ -n "$package" ]; then
-        note "$name: Telegram first start: $(guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime|Error' | tr '\n' ' ')"
+        note "$name: Telegram first start: $(guest shell "am start -W -n \$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $package | tail -1)" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime|Error' | tr '\n' ' ')"
         sleep 15
         guest exec-out screencap -p > "$dir/telegram.png" 2>/dev/null
         guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 2
@@ -812,7 +812,7 @@ GUEST
         guest shell "input keyevent KEYCODE_APP_SWITCH" >/dev/null 2>&1; sleep 5
         guest exec-out screencap -p > "$dir/recents.png" 2>/dev/null
         guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 60
-        note "$name: Telegram after 60 s in the background: process $(guest shell "pidof $package" 2>/dev/null | tr -d '\r\n' | sed 's/^$/GONE/'); return: $(guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|Error' | tr '\n' ' ')"
+        note "$name: Telegram after 60 s in the background: process $(guest shell "pidof $package" 2>/dev/null | tr -d '\r\n' | sed 's/^$/GONE/'); return: $(guest shell "am start -W -n \$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $package | tail -1)" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|Error' | tr '\n' ' ')"
         sleep 4
         guest exec-out screencap -p > "$dir/telegram-return.png" 2>/dev/null
         guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1
@@ -833,7 +833,7 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -873,6 +873,14 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     DEEP_TUNE=1 deep_run cpu-confined-2 "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background confined"
     deep_run cpu-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background on every core"
     echo "RESULT: background placement comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = deepapp ]; then
+    # An installed application: first start, the recent-apps screen, a minute
+    # in the background, return.
+    curl -fL --retry 3 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk || true
+    SETTLE_MINUTES=2 DEEP_APP=1 deep_run app "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, installed application"
+    echo "RESULT: installed application check finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = deepab ]; then
