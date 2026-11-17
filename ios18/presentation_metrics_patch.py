@@ -59,14 +59,22 @@ replace("    void draw(MTKView* view, CAMetalLayer* layer) noexcept\n",
 
     void draw(MTKView* view, CAMetalLayer* layer) noexcept
 """)
-replace("""                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+# The handler is registered before the drawable is scheduled for presentation.
+replace("""                [buffer presentDrawable:drawable];
+                auto state = shared_from_this();
+                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
                     state->presentedFrames.fetch_add(
 """,
-        """                if (deliveryMetricsEnabled) {
+        """                auto state = shared_from_this();
+                if (deliveryMetricsEnabled) {
                     const CGSize shownSize = drawable.layer.drawableSize;
                     [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+                        // A system that reports no presentation time (the
+                        // Simulator) is timed when the handler runs.
+                        const CFTimeInterval at = shown.presentedTime > 0
+                            ? shown.presentedTime : CACurrentMediaTime();
                         const auto measured = state->deliveryMetrics.presented(
-                            shown.presentedTime, contentGeneration, state->processCpuSeconds());
+                            at, contentGeneration, state->processCpuSeconds());
                         if (measured) {
                             const auto& m = *measured;
                             std::fprintf(stderr,
@@ -87,6 +95,7 @@ replace("""                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
                         }
                     }];
                 }
+                [buffer presentDrawable:drawable];
                 [buffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
                     if (state->deliveryMetricsEnabled)
                         state->deliveryMetrics.gpuCompleted(
