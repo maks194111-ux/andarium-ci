@@ -17,6 +17,7 @@ python3 "$HERE/app_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" app
 python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
 python3 "$HERE/report_patch.py" "$UPSTREAM"
+python3 "$HERE/diagnostics_patch.py" "$UPSTREAM" app
 python3 "$HERE/device_capabilities_patch.py" "$UPSTREAM"
 if [ "${PRESENTATION_EXPERIMENT:-0}" = 1 ]; then
   python3 - <<'PY'

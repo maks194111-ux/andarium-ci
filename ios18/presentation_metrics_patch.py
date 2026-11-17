@@ -42,6 +42,17 @@ replace("    void draw(MTKView* view, CAMetalLayer* layer) noexcept\n",
         return static_cast<long long>(information.phys_footprint >> 20);
     }
 
+    static const char* thermalName() noexcept
+    {
+        switch (NSProcessInfo.processInfo.thermalState) {
+        case NSProcessInfoThermalStateNominal: return "nominal";
+        case NSProcessInfoThermalStateFair: return "fair";
+        case NSProcessInfoThermalStateSerious: return "serious";
+        case NSProcessInfoThermalStateCritical: return "critical";
+        }
+        return "unknown";
+    }
+
     FrameDeliveryMetrics deliveryMetrics;
     const bool deliveryMetricsEnabled =
         std::getenv("UML_PRESENT_METRICS") != nullptr;
@@ -52,6 +63,7 @@ replace("""                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
                     state->presentedFrames.fetch_add(
 """,
         """                if (deliveryMetricsEnabled) {
+                    const CGSize shownSize = drawable.layer.drawableSize;
                     [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
                         const auto measured = state->deliveryMetrics.presented(
                             shown.presentedTime, contentGeneration, state->processCpuSeconds());
@@ -62,12 +74,16 @@ replace("""                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
                                 "%.2f delivered FPS; intervals p50 %.2f p90 %.2f p99 %.2f "
                                 "worst %.2f ms; presentation GPU %.3f ms (%u samples); "
                                 "process CPU %.2f cores, footprint %lld MiB, "
-                                "Metal allocations %llu MiB\\\\n",
+                                "Metal allocations %llu MiB; touch to changed frame %.1f ms "
+                                "average, %.1f ms worst (%u touches); thermal %s; "
+                                "drawable %.0fx%.0f\\\\n",
                                 m.seconds, m.frames, m.fps, m.p50Ms, m.p90Ms,
                                 m.p99Ms, m.worstMs, m.gpuAverageMs, m.gpuSamples,
                                 m.processCpuCores, state->processFootprintMiB(),
                                 static_cast<unsigned long long>(
-                                    state->device.currentAllocatedSize >> 20));
+                                    state->device.currentAllocatedSize >> 20),
+                                m.touchAverageMs, m.touchWorstMs, m.touchSamples,
+                                state->thermalName(), shownSize.width, shownSize.height);
                         }
                     }];
                 }
@@ -79,6 +95,16 @@ replace("""                [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
 """)
 # The generated Objective-C string needs a C newline escape, not a literal
 # backslash followed by n in the process's console.
-text = text.replace('MiB\\\\n"', 'MiB\\n"')
+if text.count('%.0fx%.0f\\\\n"') != 1:
+    raise SystemExit("presentation metrics: line end not found")
+text = text.replace('%.0fx%.0f\\\\n"', '%.0fx%.0f\\n"')
+# A touch going down or up is timed on the clock presentation times use; the
+# runtime calls this from its touch entry point.
+text += '''
+extern "C" void uml_note_touch_event(void)
+{
+    uml::gpu::noteTouchEvent(CACurrentMediaTime());
+}
+'''
 path.write_text(text)
 print("presentation metrics: actual distinct-content delivery and own GPU time (opt in)")

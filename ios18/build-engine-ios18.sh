@@ -37,6 +37,7 @@ c++ -std=c++20 -O2 -pthread "$HERE/test_frame_delivery_metrics.cpp" -o "$WORK/te
 "$WORK/test-frame-delivery"
 python3 "$HERE/display_pacing_patch.py" "$UPSTREAM"
 python3 "$HERE/presentation_metrics_patch.py" "$UPSTREAM"
+python3 "$HERE/diagnostics_patch.py" "$UPSTREAM" engine
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
 bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
