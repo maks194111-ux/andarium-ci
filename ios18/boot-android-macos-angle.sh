@@ -349,7 +349,7 @@ PYS
       guest install -r "$WORK/telegram.apk" > "$dir/telegram-install.txt" 2>&1
       if grep -q Success "$dir/telegram-install.txt"; then
         local telegram_package
-        telegram_package=$(guest shell pm list packages | tr -d '\r' | sed -n 's/^package:\(org\.telegram\.messenger\(\.web\)\?\)$/\1/p' | head -1)
+        telegram_package=$(guest shell pm list packages | tr -d '\r' | grep -E '^package:org\.telegram\.messenger(\.web)?$' | sed 's/^package://' | head -1)
         if [ -n "$telegram_package" ]; then
           guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $telegram_package" > "$dir/telegram-start.txt" 2>&1
           sleep 15
@@ -780,11 +780,29 @@ GUEST
     guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/settled-resources.txt" 2>&1
     scenario settled
     scenario settled2
+    if [ "${DEEP_AB:-0}" = 1 ]; then
+      # One boot, one background state, alternating variants: the shipped
+      # setting, window blur off, and the interface drawn at half size and
+      # scaled by the compositor (the display itself stays ${width}x${height}).
+      local round fx=$x flow=$low fhigh=$high
+      guest shell 'getprop' > "$dir/getprop.txt" 2>&1
+      for round in 1 2 3; do
+        scenario "ab$round-base"
+        guest shell 'settings put global disable_window_blurs 1' >/dev/null 2>&1; sleep 3
+        scenario "ab$round-noblur"
+        guest shell 'settings put global disable_window_blurs 0' >/dev/null 2>&1
+        guest shell "wm size $((width / 2))x$((height / 2)); wm density $((dpi / 2))" >/dev/null 2>&1; sleep 8
+        x=$((fx / 2)); low=$((flow / 2)); high=$((fhigh / 2))
+        scenario "ab$round-half"
+        x=$fx; low=$flow; high=$fhigh
+        guest shell "wm size reset; wm density reset" >/dev/null 2>&1; sleep 8
+      done
+    fi
     if [ "${DEEP_APP:-0}" = 1 ] && [ -s "$WORK/telegram.apk" ]; then
       local began=$(date +%s) package
       guest install -r "$WORK/telegram.apk" > "$dir/telegram-install.txt" 2>&1
       note "$name: Telegram install: $(tail -1 "$dir/telegram-install.txt" | tr -d '\r' | cut -c1-80) in $(( $(date +%s) - began )) s"
-      package=$(guest shell pm list packages | tr -d '\r' | sed -n 's/^package:\(org\.telegram\.messenger\(\.web\)\?\)$/\1/p' | head -1)
+      package=$(guest shell pm list packages | tr -d '\r' | grep -E '^package:org\.telegram\.messenger(\.web)?$' | sed 's/^package://' | head -1)
       if [ -n "$package" ]; then
         note "$name: Telegram first start: $(guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime|Error' | tr '\n' ' ')"
         sleep 15
@@ -815,7 +833,7 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -855,6 +873,12 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     DEEP_TUNE=1 deep_run cpu-confined-2 "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background confined"
     deep_run cpu-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background on every core"
     echo "RESULT: background placement comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = deepab ]; then
+    curl -fL --retry 3 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk || true
+    SETTLE_MINUTES=25 DEEP_AB=1 DEEP_APP=1 deep_run ab "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, alternating variants in one boot"
+    echo "RESULT: alternating comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = deepaot ]; then
