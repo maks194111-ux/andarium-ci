@@ -49,9 +49,10 @@ stages = [
     ("GPU completed after vsync", span("IntendedVsync", "GpuCompleted")),
     ("shown on the display after vsync", span("IntendedVsync", "DisplayPresentTime")),
 ]
-print(f"{label}: {len(rows)} frames, milliseconds (median / 90th percentile)")
+print(f"{label}: {len(rows)} frames, milliseconds (median / p90 / p95 / p99 / maximum)")
 for name, values in stages:
     values = sorted(v for v in values if v >= 0)
     if not values:
         continue
-    print(f"  {name:46s} {statistics.median(values):7.2f} / {values[int(len(values) * 0.9)]:7.2f}")
+    quantiles = [values[min(len(values) - 1, int(len(values) * p))] for p in (.9, .95, .99)]
+    print(f"  {name:46s} " + " / ".join(f"{v:7.2f}" for v in [statistics.median(values), *quantiles, max(values)]))

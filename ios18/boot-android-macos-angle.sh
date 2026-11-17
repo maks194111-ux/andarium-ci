@@ -31,6 +31,9 @@ python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
+if [ "${PROFILES:-all}" = async ]; then
+  python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
+fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
@@ -167,6 +170,23 @@ otool -L "$EMULATOR" | grep -E 'EGL|GLES' || true
 # ANGLE's macOS libEGL opens "libGLESv2.dylib" beside itself.
 ln -sf ../libGLESv2.framework/libGLESv2 "$(dirname "$EMULATOR")/Frameworks/libEGL.framework/libGLESv2.dylib"
 ls -la "$(dirname "$EMULATOR")/Frameworks/libEGL.framework"
+
+if [ "${PROFILES:-all}" = async ]; then
+  stage "real GPU synchronization and triple-buffer integrity tests"
+  xcrun clang++ -std=c++20 -fobjc-arc -O2 \
+    -I"$UPSTREAM/darwin/device/gpu" -I"$PREFIX/include" \
+    "$HERE/test_async_scanout.mm" "$UPSTREAM/darwin/device/gpu/angle_scanout.mm" \
+    "$PREFIX/lib/libepoxy.a" \
+    -F"$(dirname "$EMULATOR")/Frameworks" -framework libEGL \
+    -framework Metal -framework Foundation -framework IOSurface \
+    -Wl,-rpath,"$(dirname "$EMULATOR")/Frameworks" -o "$WORK/test-async-scanout"
+  python3 - "$WORK/test-async-scanout" <<'PYTEST'
+import subprocess, sys
+result = subprocess.run([sys.argv[1]], timeout=180)
+if result.returncode:
+    raise SystemExit(f"GPU integrity test failed: {result.returncode}")
+PYTEST
+fi
 
 stage "boot Android headless on ANGLE"
 CPUS=$(sysctl -n hw.ncpu)
@@ -780,6 +800,23 @@ GUEST
     guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/settled-resources.txt" 2>&1
     scenario settled
     scenario settled2
+    if [ "${DEEP_ASYNC:-0}" = 1 ]; then
+      if [ "$quiet" -lt 2 ]; then
+        echo "RESULT: guest did not settle; no performance claim may be made"
+      fi
+      # Same engine/image/session; only the producer's synchronization changes.
+      # Alternate order to reduce drift. Flush the setting before every run.
+      local variant round
+      for round in 1 2 3; do
+        local order="0 1"
+        [ "$round" = 2 ] && order="1 0"
+        for variant in $order; do
+          printf '%s\n' "$variant" > "$UML_ANGLE_ASYNC_CONTROL"
+          sleep 5
+          scenario "async${round}-${variant}"
+        done
+      done
+    fi
     if [ "${DEEP_AB:-0}" = 1 ]; then
       # One boot, one background state, alternating variants: the shipped
       # setting, window blur off, and the interface drawn at half size and
@@ -833,7 +870,7 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -854,6 +891,14 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
   shasum -a 256 "$GAPPS_RELEASE/guest/system.img" > "$OUT/baseline-system-sha256.txt"
+  if [ "${PROFILES:-all}" = async ]; then
+    export UML_ANGLE_ASYNC_CONTROL="$WORK/async-control"
+    printf '0\n' > "$UML_ANGLE_ASYNC_CONTROL"
+    curl -fsSL --retry 2 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk || true
+    SETTLE_MINUTES=25 DEEP_ASYNC=1 DEEP_APP=1 deep_run async "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, synchronous versus GPU-event scanout"
+    echo "RESULT: GPU-event scanout comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = deepres ]; then
     # Same image and engine, three guest resolutions, FIX9's own resolution at
     # both ends to show the host's drift. Density scales with the width, so

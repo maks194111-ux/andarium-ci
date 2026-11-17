@@ -28,6 +28,7 @@ python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/engine_api_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
+python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/window_patch.py" "$UPSTREAM"
