@@ -54,6 +54,7 @@ replace("    void draw(MTKView* view, CAMetalLayer* layer) noexcept\n",
     }
 
     FrameDeliveryMetrics deliveryMetrics;
+    std::atomic<bool> presentedHandlerRefused {false};
     const bool deliveryMetricsEnabled =
         std::getenv("UML_PRESENT_METRICS") != nullptr;
 
@@ -66,13 +67,14 @@ replace("""                [buffer presentDrawable:drawable];
                     state->presentedFrames.fetch_add(
 """,
         """                auto state = shared_from_this();
+                // Measuring must never cost a frame: a drawable that refuses
+                // the handler is timed when its commands complete instead.
+                bool timedByDrawable = false;
                 if (deliveryMetricsEnabled) {
-                    const CGSize shownSize = drawable.layer.drawableSize;
-                    [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-                        // A system that reports no presentation time (the
-                        // Simulator) is timed when the handler runs.
-                        const CFTimeInterval at = shown.presentedTime > 0
-                            ? shown.presentedTime : CACurrentMediaTime();
+                    const CGSize shownSize = layer != nil
+                        ? layer.drawableSize
+                        : CGSizeMake(drawable.texture.width, drawable.texture.height);
+                    void (^measure)(CFTimeInterval) = ^(CFTimeInterval at) {
                         const auto measured = state->deliveryMetrics.presented(
                             at, contentGeneration, state->processCpuSeconds());
                         if (measured) {
@@ -84,7 +86,7 @@ replace("""                [buffer presentDrawable:drawable];
                                 "process CPU %.2f cores, footprint %lld MiB, "
                                 "Metal allocations %llu MiB; touch to changed frame %.1f ms "
                                 "average, %.1f ms worst (%u touches); thermal %s; "
-                                "drawable %.0fx%.0f\\\\n",
+                                "drawable %.0fx%.0f\\n",
                                 m.seconds, m.frames, m.fps, m.p50Ms, m.p90Ms,
                                 m.p99Ms, m.worstMs, m.gpuAverageMs, m.gpuSamples,
                                 m.processCpuCores, state->processFootprintMiB(),
@@ -93,7 +95,34 @@ replace("""                [buffer presentDrawable:drawable];
                                 m.touchAverageMs, m.touchWorstMs, m.touchSamples,
                                 state->thermalName(), shownSize.width, shownSize.height);
                         }
-                    }];
+                    };
+                    if (!presentedHandlerRefused.load(std::memory_order_relaxed)) {
+                        @try {
+                            if ([drawable respondsToSelector:@selector(addPresentedHandler:)]) {
+                                [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+                                    // A system that reports no presentation
+                                    // time is timed when the handler runs.
+                                    measure(shown.presentedTime > 0
+                                        ? shown.presentedTime : CACurrentMediaTime());
+                                }];
+                                timedByDrawable = true;
+                            } else {
+                                presentedHandlerRefused.store(true);
+                                std::fputs("Native display metrics: no presentation callback; "
+                                    "frames are timed at command completion\\n", stderr);
+                            }
+                        } @catch (NSException* refused) {
+                            presentedHandlerRefused.store(true);
+                            std::fprintf(stderr, "Native display metrics: presentation callback "
+                                "refused (%s: %s); frames are timed at command completion\\n",
+                                refused.name.UTF8String ?: "?", refused.reason.UTF8String ?: "?");
+                        }
+                    }
+                    if (!timedByDrawable) {
+                        [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+                            measure(CACurrentMediaTime());
+                        }];
+                    }
                 }
                 [buffer presentDrawable:drawable];
                 [buffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
@@ -102,11 +131,20 @@ replace("""                [buffer presentDrawable:drawable];
                             completed.GPUStartTime, completed.GPUEndTime);
                     state->presentedFrames.fetch_add(
 """)
-# The generated Objective-C string needs a C newline escape, not a literal
-# backslash followed by n in the process's console.
-if text.count('%.0fx%.0f\\\\n"') != 1:
-    raise SystemExit("presentation metrics: line end not found")
-text = text.replace('%.0fx%.0f\\\\n"', '%.0fx%.0f\\n"')
+# Why a frame could not be shown, once, beside upstream's bare notice.
+replace("""                    std::fputs("Native Metal display failed\\n", stderr);
+""", """                    std::fputs("Native Metal display failed\\n", stderr);
+                    try {
+                        throw;
+                    } catch (NSException* error) {
+                        std::fprintf(stderr, "Native Metal display failure: %s: %s\\n",
+                            error.name.UTF8String ?: "?", error.reason.UTF8String ?: "?");
+                    } catch (const std::exception& error) {
+                        std::fprintf(stderr, "Native Metal display failure: %s\\n", error.what());
+                    } catch (...) {
+                        std::fputs("Native Metal display failure: unknown exception\\n", stderr);
+                    }
+""")
 # A touch going down or up is timed on the clock presentation times use; the
 # runtime calls this from its touch entry point.
 text += '''
