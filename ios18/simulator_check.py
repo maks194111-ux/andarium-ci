@@ -43,8 +43,12 @@ def select(runtimes, devices, major, requested_device):
 def classify(console, alive):
     stopped = bool(re.search(r"Andarium: runtime returned|UML: cannot reserve", console))
     ready = "Andarium: boot reached ready" in console
+    # A display that could not show a frame leaves a black screen while every
+    # other sign of a healthy boot is present.
+    display_failed = "Native Metal display failed" in console
     return {
-        "status": "failed" if stopped or not alive else "passed" if ready else "not_ready",
+        "status": "failed" if stopped or not alive or display_failed else "passed" if ready else "not_ready",
+        "display_failed": display_failed,
         "android_ready": ready,
         "kernel_started": bool(re.search(r"boot reached (kernelRunning|androidStarting)", console)),
         "first_frame": "first frame copied" in console,
