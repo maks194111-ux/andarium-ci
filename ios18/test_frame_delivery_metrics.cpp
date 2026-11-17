@@ -43,4 +43,19 @@ int main()
     assert(!process.presented(100, 1, 20));
     const auto usage = process.presented(105, 2, 30);
     assert(usage && usage->processCpuCores == 2);
+    // A touch is timed against the first changed frame after it; a second
+    // touch before that frame does not restart the clock, and a touch no
+    // frame followed within two seconds is not a response.
+    FrameDeliveryMetrics touched;
+    assert(!touched.presented(200, 1));
+    uml::gpu::noteTouchEvent(200.5);
+    uml::gpu::noteTouchEvent(200.55);
+    assert(!touched.presented(200.6, 2));
+    uml::gpu::noteTouchEvent(201);
+    assert(!touched.presented(204, 3));
+    const auto response = touched.presented(206, 4);
+    assert(response && response->touchSamples == 1);
+    assert(std::abs(response->touchAverageMs - 100) < 0.01);
+    assert(std::abs(response->touchWorstMs - 100) < 0.01);
+    assert(uml::gpu::pendingTouchTime.load() == 0);
 }
