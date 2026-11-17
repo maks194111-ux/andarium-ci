@@ -75,6 +75,12 @@ elif part == "app":
          "        // console file, for Settings' performance report.\n"
          "        setenv(\"UML_PRESENT_METRICS\", \"1\", 1)\n"
          "        setenv(\"UML_ANGLE_SCANOUT_STATS\", \"1\", 1)\n"),
+        # refresh_patch.py names the screen's full rate; a person can hold the
+        # guest to 60 Hz, where a frame has twice the time of a 120 Hz one.
+        ("        setenv(\"UML_GUEST_REFRESH_HZ\", String(UIScreen.main.maximumFramesPerSecond), 1)\n",
+         "        let fullRate = UIScreen.main.maximumFramesPerSecond\n"
+         "        let guestRate = UserDefaults.standard.bool(forKey: \"andarium.limit60\") ? min(fullRate, 60) : fullRate\n"
+         "        setenv(\"UML_GUEST_REFRESH_HZ\", String(guestRate), 1)\n"),
     ])
     path = root / "Andarium/Andarium/Shared/Model.swift"
     path.write_text(path.read_text() + """
@@ -85,6 +91,9 @@ enum PerformanceReport {
     private static let marks = ["Native display actual", "ANGLE scanout", "Andarium thermal state"]
     /// The drawing scale of point-resolution mode (`GuestDisplayView`).
     static let scaleKey = "andarium.pointScale125"
+    /// Android is offered a 60 Hz display on a faster screen. Read once, when
+    /// the application starts (`AndariumApp`).
+    static let limitKey = "andarium.limit60"
 
     private static func hardware() -> String {
         var size = 0
@@ -104,11 +113,12 @@ enum PerformanceReport {
         case .critical: "critical"
         @unknown default: "unknown"
         }
+        let rate = getenv("UML_GUEST_REFRESH_HZ").map { String(cString: $0) } ?? "60"
         let mode = retina ? "Retina" : (UserDefaults.standard.bool(forKey: scaleKey) ? "1.25x" : "points")
         var lines = [
             "Andarium performance report",
             "Device \\(hardware()), \\(UIDevice.current.systemName) \\(info.operatingSystemVersionString)",
-            "Screen \\(Int(screen.nativeBounds.width))x\\(Int(screen.nativeBounds.height)), up to \\(screen.maximumFramesPerSecond) Hz; drawing mode \\(mode)",
+            "Screen \\(Int(screen.nativeBounds.width))x\\(Int(screen.nativeBounds.height)), up to \\(screen.maximumFramesPerSecond) Hz; drawing mode \\(mode); Android display \\(rate) Hz",
             "Host processors \\(info.activeProcessorCount), memory \\(info.physicalMemory >> 20) MiB; guest \\(guestCores) processors, \\(guestMemoryMiB) MiB",
             "Thermal state now \\(thermal); low power mode \\(info.isLowPowerModeEnabled ? "on" : "off"); uptime \\(Int(info.systemUptime)) s",
             "Each 'Native display actual' line is about five seconds in which the picture changed.",
@@ -158,6 +168,10 @@ enum PerformanceReport {
                 Toggle("1.25x when Retina is off", isOn: $scale125)
                     .labelsHidden()
             }
+            OptionRow(title: "60 Hz (reopen Andarium)", symbol: "rectangle.inset.filled") {
+                Toggle("60 Hz (reopen Andarium)", isOn: $limit60)
+                    .labelsHidden()
+            }
         }
         .id("display")
 """),
@@ -169,6 +183,7 @@ enum PerformanceReport {
          """struct DisplaySection: View {
     @Environment(AppModel.self) private var model
     @AppStorage(PerformanceReport.scaleKey) private var scale125 = false
+    @AppStorage(PerformanceReport.limitKey) private var limit60 = false
 """),
     ])
     edit("GuestHost/Sources/GuestDisplay.swift", [
