@@ -746,6 +746,21 @@ GUEST
     guest push "$dir/threads.sh" /data/local/tmp/threads.sh >/dev/null 2>&1
     guest exec-out screencap -p > "$dir/home.png" 2>/dev/null
     note "$name: ART JIT=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n'); $(( $(date +%s) - boot_at )) s after boot: $(busy)"
+    # Processor placement. A phone keeps background work on a few cores; this
+    # guest's groups all span every core. DEEP_TUNE=1 confines background
+    # groups and background compilation, as a device's init script would.
+    guest root >/dev/null 2>&1; sleep 6
+    if [ "${DEEP_TUNE:-0}" = 1 ]; then
+      guest shell 'echo 0 > /dev/cpuset/background/cpus; echo 0-1 > /dev/cpuset/system-background/cpus; echo 0-1 > /dev/cpuset/restricted/cpus
+        setprop dalvik.vm.background-dex2oat-cpu-set 0; setprop dalvik.vm.background-dex2oat-threads 1
+        setprop dalvik.vm.dex2oat-cpu-set 0,1; setprop dalvik.vm.dex2oat-threads 2' > "$dir/tune.txt" 2>&1
+    fi
+    placement() {
+      guest shell 'id | cut -c1-30; for g in background system-background restricted foreground top-app; do echo "$g: $(cat /dev/cpuset/$g/cpus 2>&1)"; done
+        for p in $(pgrep -f "vending|gms|dex2oat|system_server|surfaceflinger|settings"); do echo "$(cat /proc/$p/cmdline | tr "\0" " " | cut -c1-48) | $(cat /proc/$p/cpuset) | $(grep Cpus_allowed_list /proc/$p/status | tr -s "\t " " ")"; done' 2>&1 | tr -d '\r'
+    }
+    placement > "$dir/placement-fresh.txt"
+    note "$name: tune=${DEEP_TUNE:-0}; $(head -6 "$dir/placement-fresh.txt" | tr '\n' ';' | cut -c1-200)"
     guest shell 'top -b -n 1 -m 20 -o %CPU,RES,NAME -s 1' > "$dir/fresh-top.txt" 2>&1
     guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/fresh-resources.txt" 2>&1
     scenario fresh
@@ -760,6 +775,7 @@ GUEST
       sleep 24
     done
     note "$name: guest quiet=$quiet (2 means settled) $(( $(date +%s) - boot_at )) s after boot: $(busy)"
+    placement > "$dir/placement-settled.txt"; grep -E "vending|dex2oat|gms" "$dir/placement-settled.txt" | head -8
     guest shell 'top -b -n 1 -m 20 -o %CPU,RES,NAME -s 1' > "$dir/settled-top.txt" 2>&1
     guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/settled-resources.txt" 2>&1
     scenario settled
@@ -799,7 +815,7 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -830,6 +846,15 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     deep_run res-1024 "$GAPPS_RELEASE" 1024 1366 132 "FIX9 image, 1024x1366"
     deep_run res-2048-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, full resolution"
     echo "RESULT: resolution comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = deepcpu ]; then
+    # Same image, engine and resolution; background work confined or not.
+    deep_run cpu-fix9-first "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background on every core"
+    DEEP_TUNE=1 deep_run cpu-confined-1 "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background confined"
+    DEEP_TUNE=1 deep_run cpu-confined-2 "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background confined"
+    deep_run cpu-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, background on every core"
+    echo "RESULT: background placement comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = deepaot ]; then
