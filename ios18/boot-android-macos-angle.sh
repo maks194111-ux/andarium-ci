@@ -641,9 +641,168 @@ record_video() {
   fi
   tail -n +1 "$dir/video-summary.txt" 2>/dev/null | head -3 | while read -r line; do echo "::notice title=$name::$line"; done
 }
-if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ]; then
+# Where the time goes with the Google image, and whether the answer changes
+# once first-boot background work has ended. One boot gives: a timeline of the
+# guest's busy share with the busiest processes, the same measured scenario
+# right after boot ("fresh") and after the guest went quiet ("settled"),
+# repeated cold starts, and a check that an installed app runs and stays alive.
+# Arguments: name, release directory, width, height, density, label.
+deep_run() {
+  local name=$1 release=$2 width=$3 height=$4 dpi=$5 label=$6
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
+  stage "deep $name: $label, RAM 3G, 60 Hz, ${width}x${height}, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=60; unset UML_MEMORY_LIMIT_MIB
+  local started=$(date +%s) booted=0 i
+  python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
+    --display offscreen --width "$width" --height "$height" --dpi "$dpi" --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 120); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; tail -5 "$dir/launcher.log" | cut -c1-200; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then
+      booted=1; note "$name: boot_completed after about $(( $(date +%s) - started )) s"; break
+    fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed"; RESULT=1
+    tail -25 "$dir/launcher.log" | cut -c1-220
+  else
+    local boot_at=$(date +%s)
+    # Busy share of all guest processors over five seconds, then the busiest
+    # processes. Prints "busy NN% | name cpu, name cpu, ...".
+    busy() {
+      local share top
+      share=$(guest shell 'head -1 /proc/stat; sleep 5; head -1 /proc/stat' 2>/dev/null | tr -d '\r' | awk '{t=0; for(i=2;i<=9;i++) t+=$i; idle=$5+$6; if (NR==1) {t0=t; i0=idle} else if (t>t0) printf "%.0f", 100*(1-(idle-i0)/(t-t0))}')
+      top=$(guest shell 'top -b -n 1 -m 6 -o %CPU,NAME -s 1' 2>/dev/null | tr -d '\r' | awk 'seen && NF>=2 && $1+0 >= 3 {printf "%s %s, ", $2, $1} /%CPU/ {seen=1}')
+      echo "busy ${share:-?}% | $top"
+    }
+    # The measured scenario. Argument: tag.
+    scenario() {
+      local tag=$1 start_line frames began took
+      guest shell "input keyevent KEYCODE_HOME; am force-stop com.android.settings" >/dev/null 2>&1; sleep 2
+      start_line=$(guest shell "am start -W -a android.settings.SETTINGS" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime' | tr '\n' ' ')
+      note "$name/$tag: Settings cold start: $start_line"
+      sleep 6
+      guest exec-out screencap -p > "$dir/$tag-settings.png" 2>/dev/null
+      guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 2
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear -enable" >/dev/null 2>&1
+      guest shell "sh /data/local/tmp/threads.sh" > "$dir/$tag-threads-before.txt" 2>&1
+      guest shell 'head -1 /proc/stat' > "$dir/$tag-stat-before.txt" 2>&1
+      began=$(date +%s)
+      guest shell "for n in 1 2 3 4 5 6; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+      took=$(( $(date +%s) - began ))
+      guest shell 'head -1 /proc/stat' > "$dir/$tag-stat-after.txt" 2>&1
+      guest shell "sh /data/local/tmp/threads.sh" > "$dir/$tag-threads-after.txt" 2>&1
+      guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/$tag-timestats-drag.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings" > "$dir/$tag-gfxinfo-drag.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/$tag-framestats-drag.txt" 2>&1
+      frames=$(tr -d '\r' < "$dir/$tag-gfxinfo-drag.txt" | awk '/Total frames rendered/ {print $4}')
+      note "$name/$tag: slow drags: ${frames:-0} frames in $took s; $(grep -E 'Janky frames:|50th percentile|90th percentile|99th percentile' "$dir/$tag-gfxinfo-drag.txt" | tr -d '\r' | tr -s ' ' | tr '\n' ';'); guest processors busy $(cat "$dir/$tag-stat-before.txt" "$dir/$tag-stat-after.txt" | tr -d '\r' | awk '{t=0; for(i=2;i<=9;i++) t+=$i; idle=$5+$6; if (NR==1) {t0=t; i0=idle} else if (t>t0) printf "%.0f%%", 100*(1-(idle-i0)/(t-t0))}')"
+      python3 "$HERE/framestats.py" "$name/$tag drags" "$dir/$tag-framestats-drag.txt" || true
+      python3 "$HERE/split.py" "$name/$tag drags" "$dir/$tag-threads-before.txt" "$dir/$tag-threads-after.txt" "${frames:-0}" "$took" || true
+      grep -E "^(totalFrames|missedFrames|clientCompositionFrames)|averageFPS" "$dir/$tag-timestats-drag.txt" | tr -d '\r' | head -8 | cut -c1-140
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null" >/dev/null 2>&1
+      guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 250; sleep 1; done; for n in 1 2 3 4; do input swipe $x $high $x $low 250; sleep 1; done"
+      guest shell "dumpsys gfxinfo com.android.settings" > "$dir/$tag-gfxinfo-fling.txt" 2>&1
+      note "$name/$tag: flings: $(grep -E 'Total frames rendered|Janky frames:|50th percentile|90th percentile|99th percentile' "$dir/$tag-gfxinfo-fling.txt" | tr -d '\r' | tr -s ' ' | tr '\n' ';')"
+      guest shell "dumpsys gfxinfo com.android.systemui reset >/dev/null" >/dev/null 2>&1
+      guest shell "for n in 1 2 3; do cmd statusbar expand-notifications; sleep 2; cmd statusbar collapse; sleep 2; done"
+      guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/$tag-gfxinfo-shade.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.systemui framestats" > "$dir/$tag-framestats-shade.txt" 2>&1
+      note "$name/$tag: shade: $(grep -E 'Total frames rendered|Janky frames:|50th percentile|90th percentile|99th percentile' "$dir/$tag-gfxinfo-shade.txt" | tr -d '\r' | tr -s ' ' | tr '\n' ';')"
+      python3 "$HERE/framestats.py" "$name/$tag shade" "$dir/$tag-framestats-shade.txt" || true
+      guest shell "cmd statusbar expand-notifications" >/dev/null 2>&1; sleep 3
+      guest exec-out screencap -p > "$dir/$tag-shade.png" 2>/dev/null
+      guest shell "cmd statusbar collapse; input keyevent KEYCODE_HOME; am force-stop com.android.vending" >/dev/null 2>&1; sleep 2
+      began=$(python3 -c 'import time; print(time.time())')
+      start_line=$(guest shell "am start -W -n com.android.vending/.AssetBrowserActivity" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime|Error' | tr '\n' ' ')
+      note "$name/$tag: Google Play cold start: $start_line(host wall $(python3 -c "import time; print(round(time.time() - $began, 1))") s)"
+      sleep 12
+      guest exec-out screencap -p > "$dir/$tag-play.png" 2>/dev/null
+      guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 3
+    }
+    sleep 60
+    guest shell 'settings put global device_provisioned 1; settings put secure user_setup_complete 1
+      for wizard in org.lineageos.setupwizard com.google.android.setupwizard; do pm disable-user --user 0 $wizard; am force-stop $wizard; done
+      input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard
+      am start -W -a android.intent.action.MAIN -c android.intent.category.HOME' > "$dir/provision.txt" 2>&1
+    sleep 45
+    guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 10
+    cat > "$dir/threads.sh" <<'GUEST'
+for name in com.android.settings surfaceflinger; do
+  for pid in $(pidof $name); do
+    for task in /proc/$pid/task/*; do
+      echo "$name $(cat $task/comm)|${task##*/} $(cat $task/schedstat)"
+    done
+  done
+done
+for pid in $(pgrep -f 'composer|allocator|kworker|virtio'); do
+  echo "other $(cat /proc/$pid/comm)|$pid $(cat /proc/$pid/schedstat)"
+done
+GUEST
+    guest push "$dir/threads.sh" /data/local/tmp/threads.sh >/dev/null 2>&1
+    guest exec-out screencap -p > "$dir/home.png" 2>/dev/null
+    note "$name: ART JIT=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n'); $(( $(date +%s) - boot_at )) s after boot: $(busy)"
+    guest shell 'top -b -n 1 -m 20 -o %CPU,RES,NAME -s 1' > "$dir/fresh-top.txt" 2>&1
+    guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/fresh-resources.txt" 2>&1
+    scenario fresh
+    # Wait for the guest to go quiet: two samples in a row under 15% busy, at
+    # most SETTLE_MINUTES. The timeline is the finding, not just the end.
+    local quiet=0 line
+    for i in $(seq 1 $(( ${SETTLE_MINUTES:-8} * 2 ))); do
+      line=$(busy)
+      echo "$name settle t=$(( $(date +%s) - boot_at ))s $line"
+      case "$line" in "busy ?%"*) ;; *) if [ "$(echo "$line" | sed -E 's/^busy ([0-9]+)%.*/\1/')" -lt 15 ]; then quiet=$((quiet + 1)); else quiet=0; fi;; esac
+      [ "$quiet" -ge 2 ] && break
+      sleep 24
+    done
+    note "$name: guest quiet=$quiet (2 means settled) $(( $(date +%s) - boot_at )) s after boot: $(busy)"
+    guest shell 'top -b -n 1 -m 20 -o %CPU,RES,NAME -s 1' > "$dir/settled-top.txt" 2>&1
+    guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/settled-resources.txt" 2>&1
+    scenario settled
+    scenario settled2
+    if [ "${DEEP_APP:-0}" = 1 ] && [ -s "$WORK/telegram.apk" ]; then
+      local began=$(date +%s) package
+      guest install -r "$WORK/telegram.apk" > "$dir/telegram-install.txt" 2>&1
+      note "$name: Telegram install: $(tail -1 "$dir/telegram-install.txt" | tr -d '\r' | cut -c1-80) in $(( $(date +%s) - began )) s"
+      package=$(guest shell pm list packages | tr -d '\r' | sed -n 's/^package:\(org\.telegram\.messenger\(\.web\)\?\)$/\1/p' | head -1)
+      if [ -n "$package" ]; then
+        note "$name: Telegram first start: $(guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|WaitTime|Error' | tr '\n' ' ')"
+        sleep 15
+        guest exec-out screencap -p > "$dir/telegram.png" 2>/dev/null
+        guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 2
+        guest shell "am start -W -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 5
+        guest shell "input keyevent KEYCODE_APP_SWITCH" >/dev/null 2>&1; sleep 5
+        guest exec-out screencap -p > "$dir/recents.png" 2>/dev/null
+        guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 60
+        note "$name: Telegram after 60 s in the background: process $(guest shell "pidof $package" 2>/dev/null | tr -d '\r\n' | sed 's/^$/GONE/'); return: $(guest shell "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $package" 2>&1 | tr -d '\r' | grep -E 'LaunchState|TotalTime|Error' | tr '\n' ' ')"
+        sleep 4
+        guest exec-out screencap -p > "$dir/telegram-return.png" 2>/dev/null
+        guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1
+      fi
+    fi
+    guest shell 'dumpsys cpuinfo' > "$dir/cpuinfo.txt" 2>&1
+    guest logcat -d > "$dir/logcat.txt" 2>&1
+    echo "$name: fatal entries in logcat: $(grep -ciE "FATAL EXCEPTION|Fatal signal" "$dir/logcat.txt")"
+    grep -E "FATAL EXCEPTION|Fatal signal|ANR in" "$dir/logcat.txt" | cut -c1-200 | sort -k6 | uniq -c -f5 | head -12
+    echo "--- $name: activities displayed"
+    grep -E "ActivityTaskManager: Displayed" "$dir/logcat.txt" | sed -E 's/^[0-9-]+ ([0-9:.]+).*Displayed ([^ ]+) for user 0: (.*)$/\1 \2 \3/' | cut -c1-150
+    echo "--- $name: dex2oat and package work seen in the log"
+    grep -ciE "dex2oat|BackgroundDexOpt|PackageManagerDexOptimizer" "$dir/logcat.txt"
+    grep -E "dex2oat.*(took|Explicit)|BackgroundDexOpt" "$dir/logcat.txt" | cut -c1-180 | head -12
+  fi
+  kill -0 "$launcher" 2>/dev/null && echo "$name: emulator still running at the end" || { echo "$name: EMULATOR EXITED DURING THE TEST"; RESULT=1; }
+  kill -INT "$launcher" 2>/dev/null; sleep 20; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"; sleep 5
+}
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot) DEEP=1;; esac
+if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
-  if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
+  if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
   if [ "${PROFILES:-all}" = video ]; then
     stage "tools for the video (ffmpeg, LZ4 reader)"
     command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
@@ -661,6 +820,34 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
   shasum -a 256 "$GAPPS_RELEASE/guest/system.img" > "$OUT/baseline-system-sha256.txt"
+  if [ "${PROFILES:-all}" = deepres ]; then
+    # Same image and engine, three guest resolutions, FIX9's own resolution at
+    # both ends to show the host's drift. Density scales with the width, so
+    # the interface keeps its physical size.
+    curl -fL --retry 3 -o "$WORK/telegram.apk" https://telegram.org/dl/android/apk || true
+    DEEP_APP=1 deep_run res-2048-first "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, full resolution"
+    deep_run res-1280 "$GAPPS_RELEASE" 1280 1707 165 "FIX9 image, 1280x1707"
+    deep_run res-1024 "$GAPPS_RELEASE" 1024 1366 132 "FIX9 image, 1024x1366"
+    deep_run res-2048-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image, full resolution"
+    echo "RESULT: resolution comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = deepaot ]; then
+    [ -n "${GAPPS_AOT_RELEASE_URL:-}" ] || { echo "RESULT: no private AOT release address"; exit 1; }
+    AOT_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-full-aot-experiment"
+    cp -R "$STOCK" "$AOT_RELEASE"
+    curl -fsSL --retry 3 -o "$WORK/aot-release.zip" "$GAPPS_AOT_RELEASE_URL" 2>/dev/null || { echo "RESULT: private AOT release fetch failed"; exit 1; }
+    for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+      unzip -p "$WORK/aot-release.zip" "$entry" > "$AOT_RELEASE/$entry"
+    done
+    rm -f "$WORK/aot-release.zip"
+    deep_run aot-fix9-first "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image (ART JIT on)"
+    deep_run aot-aot-1 "$AOT_RELEASE" 2048 2732 264 "ahead-of-time image (ART JIT off)"
+    deep_run aot-aot-2 "$AOT_RELEASE" 2048 2732 264 "ahead-of-time image (ART JIT off)"
+    deep_run aot-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image (ART JIT on)"
+    echo "RESULT: FIX9 against ahead-of-time image finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = video ]; then
     record_video video-fix9 "$GAPPS_RELEASE" "Google image of the FIX9 build"
     if [ "${VIDEO_AOT:-1}" = 1 ] && [ -n "${GAPPS_AOT_RELEASE_URL:-}" ]; then
