@@ -190,8 +190,7 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
       -destination "id=$UDID" -derivedDataPath "$WORK/soak-dd" \
       > "$OUT/soak-test.log" 2>&1 &
     SOAK_TEST=$!
-    # A screen recording of the first two minutes of flings. The hosted Mac may
-    # have no video encoder; then a series of screenshots stands in for it.
+    # Native real-time recording; never substitute stills for a motion capture.
     (
       # Start when the list is open, so the recording shows the flings.
       for wait in $(seq 1 120); do
@@ -200,18 +199,10 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
       # Where the app's threads are while the list moves: ten seconds of
       # host-side samples, taken before the recording.
       sample "$(pgrep -f 'Andarium.app/Andarium' | head -1)" 10 -file "$OUT/soak-sample.txt" > /dev/null 2>&1
-      xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/soak-video.mp4" > "$OUT/soak-video.log" 2>&1 &
-      recorder=$!
-      sleep 90
-      kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
-      if [ ! -s "$OUT/soak-video.mp4" ]; then
-        echo "no video file; taking frames instead" >> "$OUT/soak-video.log"
-        mkdir -p "$OUT/soak-frames"
-        for frame in $(seq -w 1 150); do
-          xcrun simctl io "$UDID" screenshot --type=jpeg "$OUT/soak-frames/$frame.jpg" >/dev/null 2>&1
-        done
-      fi
+      bash "$HERE/record_simulator_video.sh" "$UDID" "$OUT/soak-video.mp4" 90 \
+        > "$OUT/soak-recording-status.txt" 2>&1
     ) &
+    SOAK_RECORDER=$!
     shots=0
     while kill -0 "$SOAK_TEST" 2>/dev/null; do
       sleep 15
@@ -225,6 +216,7 @@ if [ "$SOAK_SECONDS" -gt 0 ] && [ -z "${ENDED:-}" ] && grep -aq 'boot reached re
       if [ "$t" -gt $(( SOAK_SECONDS + 600 )) ]; then echo "soak driver overran"; kill "$SOAK_TEST"; break; fi
     done
     wait "$SOAK_TEST"; SOAK_STATUS=$?
+    wait "$SOAK_RECORDER" || echo "Motion recording failed; screenshots are not a substitute."
     last=$(wc -l < "$OUT/console-start.txt" | tr -d ' ')
     grep -a "SOAK \|error\|failed\|passed" "$OUT/soak-test.log" | grep -v "^ *$" | tail -25 | cut -c1-200
     python3 "$HERE/soak_report.py" "$OUT/console-start.txt" "$first" "$last" "$OUT/soak.json"
