@@ -604,12 +604,13 @@ record_video() {
   local hertz=${VIDEO_HZ:-60}
   stage "video $name: $label, RAM ${VIDEO_MEMORY:-3G}, $hertz Hz, 2048x2732, $CPUS guest processors"
   export UML_GUEST_REFRESH_HZ=$hertz VIDEO_RATE=$hertz; unset UML_MEMORY_LIMIT_MIB
+  if [ "${VIDEO_LIMIT:-0}" != 0 ]; then export UML_MEMORY_LIMIT_MIB=$VIDEO_LIMIT; note "$name: process memory limit $VIDEO_LIMIT MiB, ${VIDEO_CPUS:-$CPUS} guest processors"; fi
   rm -f "$record" "$record.on" "$events"
   mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
   local started=$(date +%s) booted=0 i
   UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
     --display offscreen --offscreen-mirror "720@$hertz" --width 2048 --height 2732 --dpi 264 --audio-output null \
-    --cpus "$CPUS" --memory "${VIDEO_MEMORY:-3G}" --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   for i in $(seq 1 120); do
@@ -686,6 +687,7 @@ record_video() {
       note "$name: warm launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
       guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
     done
+    echo "--- $name: engine lines about its code cache and memory"; grep -aiE 'cache|flush|evict|jetsam|budget|footprint' "$dir/launcher.log" | tail -25 | cut -c1-220
     note "$name: memory: $(guest shell 'grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; grep -E "^(pswpin|pswpout|pgmajfault) " /proc/vmstat' 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     pressure "$name after the recording"
     guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
@@ -1275,6 +1277,17 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     record_video video-quiet "$QUIET" "FIX12 image"
     echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videoipad ]; then
+    # Closer to the iPad: a process memory limit (the engine sizes its code cache by it) and more guest processors than fast cores.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    VIDEO_LIMIT=5120 VIDEO_MEMORY=2560M record_video video-limit "$QUIET" "FIX12 image, 5120 MiB process limit, 2560M guest"
+    VIDEO_LIMIT=5120 VIDEO_MEMORY=2560M VIDEO_CPUS=8 record_video video-limit-8cpu "$QUIET" "FIX12 image, 5120 MiB limit, 2560M guest, 8 guest processors"
+    VIDEO_CPUS=8 record_video video-8cpu "$QUIET" "FIX12 image, no limit, 3G, 8 guest processors"
+    echo "RESULT: iPad-like comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videomem ]; then
