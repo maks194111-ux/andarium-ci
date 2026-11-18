@@ -602,14 +602,14 @@ record_video() {
   local record="$WORK/$name.frames" events="$dir/events.txt"
   local x=1024 low=2049 high=683
   local hertz=${VIDEO_HZ:-60}
-  stage "video $name: $label, RAM 3G, $hertz Hz, 2048x2732, $CPUS guest processors"
+  stage "video $name: $label, RAM ${VIDEO_MEMORY:-3G}, $hertz Hz, 2048x2732, $CPUS guest processors"
   export UML_GUEST_REFRESH_HZ=$hertz VIDEO_RATE=$hertz; unset UML_MEMORY_LIMIT_MIB
   rm -f "$record" "$record.on" "$events"
   mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
   local started=$(date +%s) booted=0 i
   UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
     --display offscreen --offscreen-mirror "720@$hertz" --width 2048 --height 2732 --dpi 264 --audio-output null \
-    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    --cpus "$CPUS" --memory "${VIDEO_MEMORY:-3G}" --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   for i in $(seq 1 120); do
@@ -662,7 +662,8 @@ record_video() {
     touch "$record.on"; sleep 2
     mark "home screen, idle"; sleep 4
     mark "Settings opens"
-    guest shell "am start -a android.settings.SETTINGS" >/dev/null 2>&1; sleep 8
+    guest shell "am start -W -a android.settings.SETTINGS" > "$dir/launch-settings.txt" 2>&1; sleep 8
+    note "$name: Settings launch: $(grep -aE 'TotalTime|WaitTime|LaunchState' "$dir/launch-settings.txt" | tr -d '\r' | tr '\n' ' ')"
     mark "Settings list, flings"
     guest shell "for n in 1 2 3 4; do input swipe $x $low $x $high 250; sleep 1; done; for n in 1 2 3 4; do input swipe $x $high $x $low 250; sleep 1; done"
     mark "Settings list, slow drags"
@@ -677,6 +678,15 @@ record_video() {
     guest shell "input swipe $x $low $x $high 300; sleep 4; input swipe $x $low $x $high 600; sleep 2; input swipe $x $high $x $low 600; sleep 2; input keyevent KEYCODE_HOME"; sleep 5
     mark "end"
     sleep 1; rm -f "$record.on"
+    # Launch times, cold then warm, as a person meets them.
+    for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
+      guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 2
+      note "$name: cold launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+      guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
+      note "$name: warm launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+      guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
+    done
+    note "$name: memory: $(guest shell 'grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; grep -E "^(pswpin|pswpout|pgmajfault) " /proc/vmstat' 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     pressure "$name after the recording"
     guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
     guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-settings.txt" 2>&1
@@ -1243,6 +1253,18 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     deep_run aot-aot-2 "$AOT_RELEASE" 2048 2732 264 "ahead-of-time image (ART JIT off)"
     deep_run aot-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image (ART JIT on)"
     echo "RESULT: FIX9 against ahead-of-time image finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videomem ]; then
+    # The iPad grants the guest less memory than the 3G used here so far.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" \
+      e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    VIDEO_MEMORY=2G record_video video-2g "$QUIET" "FIX12 image with 2G of guest memory"
+    VIDEO_MEMORY=1536M record_video video-1536m "$QUIET" "FIX12 image with 1536M of guest memory"
+    VIDEO_MEMORY=3G record_video video-3g "$QUIET" "FIX12 image with 3G of guest memory"
+    echo "RESULT: memory comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = video120 ]; then
