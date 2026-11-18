@@ -626,6 +626,13 @@ record_video() {
     sleep 45
     guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1
     sleep 15
+    if [ "${VIDEO_SETTLE_MINUTES:-0}" != 0 ]; then
+      # First-boot background work (Google services, package optimisation) ends first.
+      note "$name: waiting ${VIDEO_SETTLE_MINUTES} minutes for first-boot work; load before: $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
+      sleep $(( VIDEO_SETTLE_MINUTES * 60 ))
+      guest shell 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 10
+      note "$name: load after the wait: $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
+    fi
     note "$name: before the recording: ART JIT=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n'), HOME=$(guest shell 'cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME' 2>/dev/null | tr -d '\r' | tail -1), front=$(guest shell 'dumpsys activity activities' 2>/dev/null | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -s ' ' | cut -c1-120)"
     guest exec-out screencap -p > "$dir/before-recording.png" 2>/dev/null
     guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1"
@@ -1071,7 +1078,7 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   if [ "${PROFILES:-all}" = video120 ]; then
     # The iPad's configuration: 120 Hz. FIX9's image, then the same image with
     # the SurfaceFlinger work durations (the FIX11 image), then FIX9 again.
-    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=20
     TUNED="$WORK/release-fix11"
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
       e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
