@@ -35,7 +35,7 @@ if [ "${PROFILES:-all}" = fenceWake ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
   python3 "$HERE/fence_wakeup_patch.py" "$UPSTREAM" --compare
 fi
-if [ "${PROFILES:-all}" = pipeline ]; then
+if [ "${PROFILES:-all}" = pipeline ] || [ "${PROFILES:-all}" = hostcpu ]; then
   # The engine as the phone build has it: GPU-event scanout always on.
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
   c++ -std=c++20 -O1 -Wall "$HERE/test_edid_high_rate.cpp" -o "$WORK/test-edid-high-rate"
@@ -973,6 +973,80 @@ pipeline_run() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
+# Which host threads are busy while the guest draws: the same slow drags as the
+# pipeline profile, with the emulator's host threads sampled for 20 s.
+hostcpu_run() {
+  local name=$1 release=$2 hertz=$3 width=2048 height=2732
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
+  stage "host threads $name: $hertz Hz, ${width}x${height}, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=$hertz UML_ANGLE_ASYNC=1; unset UML_MEMORY_LIMIT_MIB
+  local booted=0 i
+  python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
+    --display offscreen --width "$width" --height "$height" --dpi 264 --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 90); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=1; break; fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed"; RESULT=1
+  else
+    for i in $(seq 1 30); do
+      [ "$(guest shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r')" = 1 ] && break
+      sleep 5
+    done
+    sleep 90
+    guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1
+    sleep 15
+    guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 3
+    local pid; pid=$(ps -ax -o pid=,comm= | awk '$2 ~ /\/uml-darwin-android17$/ {print $1; exit}')
+    local round drags
+    for round in 1 2; do
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear -enable" >/dev/null 2>&1
+      guest shell "for n in 1 2 3 4 5 6 7 8 9 10 11 12; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done" &
+      drags=$!
+      sleep 3
+      top -l 3 -s 5 -stats pid,command,cpu,th -o cpu -n 8 > "$dir/top-$round.txt" 2>&1 &
+      sample "$pid" 20 -file "$dir/host-sample-$round.txt" > /dev/null 2>&1
+      wait "$drags"
+      guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-$round.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-$round.txt" 2>&1
+      note "$name round $round: display $(grep -E '^(totalFrames|missedFrames)' "$dir/timestats-$round.txt" | tr -d '\r' | tr -s ' \n' ' '); $(python3 "$HERE/host_threads_report.py" "$dir/host-sample-$round.txt" 2>&1 | head -1)"
+      python3 "$HERE/framestats.py" "$name round $round" "$dir/framestats-$round.txt" || true
+      python3 "$HERE/host_threads_report.py" "$dir/host-sample-$round.txt" 5 2>&1 | cut -c1-150
+      echo "--- $name round $round: host processes"; tail -12 "$dir/top-$round.txt"
+    done
+    # Guest threads during the same drags (its own top costs guest time, so separately).
+    guest shell "for n in 1 2 3 4 5 6; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done" &
+    drags=$!
+    sleep 3
+    guest shell "top -H -b -n 2 -d 5 -m 25" > "$dir/guest-top.txt" 2>&1
+    wait "$drags"
+    echo "--- $name: guest threads"; tail -30 "$dir/guest-top.txt" | cut -c1-140
+    # The idle guest, for the cost that is there without any drawing.
+    guest shell "input keyevent KEYCODE_HOME" >/dev/null 2>&1; sleep 20
+    sample "$pid" 10 -file "$dir/host-sample-idle.txt" > /dev/null 2>&1
+    echo "--- $name idle:"; python3 "$HERE/host_threads_report.py" "$dir/host-sample-idle.txt" 3 2>&1 | cut -c1-150
+  fi
+  kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"; sleep 5
+}
+if [ "${PROFILES:-all}" = hostcpu ]; then
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
+  TUNED="$WORK/release-sf-pipeline"
+  python3 "$HERE/sf_pipeline/splice_odm.py" "$STOCK" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
+    e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+  sysctl -n machdep.cpu.brand_string hw.ncpu 2>/dev/null | tr '\n' ' '; echo
+  hostcpu_run host120 "$TUNED" 120
+  hostcpu_run host60 "$TUNED" 60
+  echo "RESULT: host thread profile finished (status $RESULT)."
+  exit "$RESULT"
+fi
 if [ "${PROFILES:-all}" = pipeline ]; then
   STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
   TUNED="$WORK/release-sf-pipeline"
