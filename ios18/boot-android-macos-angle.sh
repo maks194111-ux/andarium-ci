@@ -47,7 +47,8 @@ fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
-if [ "${PROFILES:-all}" = video ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
+if [ "${PROFILES:-all}" = video ] || [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
+if [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
   stage "mapping wait: original correctness tests under both policies"
   bash "$HERE/test_mapping_wait.sh" "$UPSTREAM"
@@ -594,13 +595,14 @@ record_video() {
   local dir="$OUT/$name"; mkdir -p "$dir"
   local record="$WORK/$name.frames" events="$dir/events.txt"
   local x=1024 low=2049 high=683
-  stage "video $name: $label, RAM 3G, 60 Hz, 2048x2732, $CPUS guest processors"
-  export UML_GUEST_REFRESH_HZ=60; unset UML_MEMORY_LIMIT_MIB
+  local hertz=${VIDEO_HZ:-60}
+  stage "video $name: $label, RAM 3G, $hertz Hz, 2048x2732, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=$hertz VIDEO_RATE=$hertz; unset UML_MEMORY_LIMIT_MIB
   rm -f "$record" "$record.on" "$events"
   mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
   local started=$(date +%s) booted=0 i
   UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
-    --display offscreen --offscreen-mirror 720@60 --width 2048 --height 2732 --dpi 264 --audio-output null \
+    --display offscreen --offscreen-mirror "720@$hertz" --width 2048 --height 2732 --dpi 264 --audio-output null \
     --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
@@ -627,6 +629,7 @@ record_video() {
     note "$name: before the recording: ART JIT=$(guest shell getprop dalvik.vm.usejit 2>/dev/null | tr -d '\r\n'), HOME=$(guest shell 'cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME' 2>/dev/null | tr -d '\r' | tail -1), front=$(guest shell 'dumpsys activity activities' 2>/dev/null | tr -d '\r' | grep -m1 -E 'topResumedActivity|mResumedActivity' | tr -s ' ' | cut -c1-120)"
     guest exec-out screencap -p > "$dir/before-recording.png" 2>/dev/null
     guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1"
+    note "$name: SurfaceFlinger budget property: [$(guest shell getprop debug.sf.late.sf.duration 2>/dev/null | tr -d '\r\n')], mode: $(guest shell dumpsys SurfaceFlinger 2>/dev/null | grep -a -m1 -o 'vsyncRate=[0-9.]* Hz')"
     touch "$record.on"; sleep 2
     mark "home screen, idle"; sleep 4
     mark "Settings opens"
@@ -978,11 +981,11 @@ if [ "${PROFILES:-all}" = pipeline ]; then
   echo "RESULT: frame pipeline comparison finished (status $RESULT)."
   exit "$RESULT"
 fi
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake|video120) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
-  if [ "${PROFILES:-all}" = video ]; then
+  if [ "${PROFILES:-all}" = video ] || [ "${PROFILES:-all}" = video120 ]; then
     stage "tools for the video (ffmpeg, LZ4 reader)"
     command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
     ffmpeg -version | head -1 || { echo "RESULT: ffmpeg could not be installed."; exit 1; }
@@ -1063,6 +1066,19 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     deep_run aot-aot-2 "$AOT_RELEASE" 2048 2732 264 "ahead-of-time image (ART JIT off)"
     deep_run aot-fix9-last "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image (ART JIT on)"
     echo "RESULT: FIX9 against ahead-of-time image finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = video120 ]; then
+    # The iPad's configuration: 120 Hz. FIX9's image, then the same image with
+    # the SurfaceFlinger work durations (the FIX11 image), then FIX9 again.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120
+    TUNED="$WORK/release-fix11"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
+      e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    shasum -a 256 "$TUNED/guest/system.img"
+    record_video video-fix9 "$GAPPS_RELEASE" "FIX9 Google image, 120 Hz"
+    record_video video-fix11 "$TUNED" "FIX11 Google image (frame budgets), 120 Hz"
+    echo "RESULT: 120 Hz video recording finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = video ]; then

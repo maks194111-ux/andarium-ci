@@ -18,7 +18,7 @@ import sys
 import lz4.block
 
 HEADER = struct.Struct("<QIIII")
-RATE = 60
+RATE = int(__import__("os").environ.get("VIDEO_RATE", "60"))
 
 
 def frames(path):
