@@ -1255,6 +1255,28 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     echo "RESULT: FIX9 against ahead-of-time image finished (status $RESULT)."
     exit "$RESULT"
   fi
+  if [ "${PROFILES:-all}" = videoaot ]; then
+    # Launch times and frames: FIX12 image against the image compiled ahead of time, both with the FIX12 odm.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    [ -n "${GAPPS_AOT_RELEASE_URL:-}" ] || { echo "RESULT: no private AOT release address"; exit 1; }
+    AOT_RELEASE="$UPSTREAM/.build/android/releases/andarium-gapps-full-aot-experiment"
+    cp -R "$STOCK" "$AOT_RELEASE"
+    curl -fsSL --retry 3 -o "$WORK/aot-release.zip" "$GAPPS_AOT_RELEASE_URL" 2>/dev/null || { echo "RESULT: private AOT release fetch failed"; exit 1; }
+    for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+      unzip -p "$WORK/aot-release.zip" "$entry" > "$AOT_RELEASE/$entry"
+    done
+    rm -f "$WORK/aot-release.zip"
+    AOTQ="$WORK/release-aot-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "$AOT_RELEASE" "$AOTQ" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    rm -rf "$AOT_RELEASE"
+    record_video video-aot-quiet "$AOTQ" "ahead-of-time image with the FIX12 odm"
+    rm -rf "$AOTQ"
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    record_video video-quiet "$QUIET" "FIX12 image"
+    echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = videomem ]; then
     # The iPad grants the guest less memory than the 3G used here so far.
     export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
