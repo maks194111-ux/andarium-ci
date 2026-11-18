@@ -204,6 +204,12 @@ CPUS=$(sysctl -n hw.ncpu)
 SERIAL=127.0.0.1:5555
 # The launcher drops its own ADB session when it has seen the boot; reconnect
 # before every query.
+# Where the guest's tasks wait: pressure-stall totals (microseconds stalled
+# since boot) and paging counters. Differences between two calls are the interval.
+pressure() {
+  echo "--- pressure: $1"
+  guest shell 'for f in cpu memory io; do echo "$f $(grep -h some /proc/pressure/$f) | $(grep -h full /proc/pressure/$f)"; done; grep -E "^(pgmajfault|pswpin|pswpout|pgpgin|pgpgout|workingset_refault_file|workingset_refault_anon|pgscan_direct|allocstall_normal) " /proc/vmstat | tr "\n" " "; echo; cat /proc/uptime; grep -E "MemAvailable|SwapFree|^Cached|Dirty:" /proc/meminfo | tr -s " \n" " "; echo' 2>&1 | tr -d '\r' | cut -c1-260
+}
 guest() { adb connect "$SERIAL" >/dev/null 2>&1; adb -s "$SERIAL" "$@"; }
 export UML_ANGLE_SCANOUT_STATS=1
 RESULT=0
@@ -637,6 +643,7 @@ record_video() {
           echo "--- $name: minute $minute, load $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
           grep -aE '^ *[0-9]+ ' "$dir/top-minute-$minute.txt" | head -12 | cut -c1-150
           grep -aE 'Mem:|Swap:|%cpu' "$dir/top-minute-$minute.txt" | cut -c1-150
+          pressure "$name minute $minute"
         fi
       done
       guest shell "top -H -b -n 1 -d 5 -m 30 -s 4" > "$dir/top-threads-settled.txt" 2>&1
@@ -650,6 +657,7 @@ record_video() {
     guest exec-out screencap -p > "$dir/before-recording.png" 2>/dev/null
     guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1"
     note "$name: SurfaceFlinger budget property: [$(guest shell getprop debug.sf.late.sf.duration 2>/dev/null | tr -d '\r\n')], mode: $(guest shell dumpsys SurfaceFlinger 2>/dev/null | grep -a -m1 -o 'vsyncRate=[0-9.]* Hz')"
+    pressure "$name before the recording"
     touch "$record.on"; sleep 2
     mark "home screen, idle"; sleep 4
     mark "Settings opens"
@@ -668,6 +676,7 @@ record_video() {
     guest shell "input swipe $x $low $x $high 300; sleep 4; input swipe $x $low $x $high 600; sleep 2; input swipe $x $high $x $low 600; sleep 2; input keyevent KEYCODE_HOME"; sleep 5
     mark "end"
     sleep 1; rm -f "$record.on"
+    pressure "$name after the recording"
     guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
     guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-settings.txt" 2>&1
     guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-settings.txt" 2>&1
