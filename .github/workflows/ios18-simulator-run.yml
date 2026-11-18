@@ -25,6 +25,10 @@ on:
       seconds:
         description: How long to watch the Android start
         default: "420"
+      recording:
+        description: Record FIX9 Google image with real touch scrolling
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -56,6 +60,11 @@ jobs:
           path: ${{ runner.temp }}/angle-sim-download
       - name: Run on the iPhone 11 Simulator with iOS 18
         shell: bash
+        env:
+          IMAGE_KIND: ${{ inputs.recording && 'gapps' || 'stock' }}
+          GAPPS_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
+          SOAK_SECONDS: ${{ inputs.recording && '180' || '0' }}
+          STARTUP_RECORD_SECONDS: ${{ inputs.recording && '120' || '0' }}
         run: |
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-sim-download/angle-sim.tar.gz"
           bash ci/ios18/run-simulator.sh "$RUNNER_TEMP/app-download/Andarium-ios18-no-image.zip" "$RUNNER_TEMP" "${{ inputs.seconds }}" "$RUNNER_TEMP/angle-sim" "${{ inputs.memory_mib }}" "${{ inputs.device }}" "${{ inputs.ios }}"
