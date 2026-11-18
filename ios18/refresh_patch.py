@@ -9,6 +9,9 @@ app does not opt in to rates above 60 Hz on iPhone.  With this patch:
   app:    the app sets it from the screen's maximum rate and declares
           CADisableMinimumFrameDurationOnPhone.
 Usage: refresh_patch.py <upstream> engine|app
+A base EDID timing cannot name 2048x2732 at 120 Hz (pixel clock above 655 MHz);
+the clamped clock gave such a display about 93 Hz. edid_high_rate.hpp describes
+that mode in a DisplayID extension block instead (test_edid_high_rate.cpp).
 Whether a phone sustains the higher rate is not established by this patch.
 """
 import sys
@@ -48,7 +51,19 @@ if part == "engine":
         ("             (static_cast<std::uint64_t>(height) + verticalBlank) * 60U +\n",
          "             (static_cast<std::uint64_t>(height) + verticalBlank) *\n"
          "                 guestRefreshHertz() +\n"),
+        ("#include <cstdlib>\n", "#include <cstdlib>\n#include \"edid_high_rate.hpp\"\n"),
+        ("    information.size = protocol::baseEdidSize;\n"
+         "    const auto base = makeEdid(width, height, dotsPerInch_);\n"
+         "    std::copy(base.begin(), base.end(), information.edid.begin());\n",
+         "    const auto base = makeEdid(width, height, dotsPerInch_);\n"
+         "    std::copy(base.begin(), base.end(), information.edid.begin());\n"
+         "    // A mode the base timing cannot name (2048x2732 at 120 Hz) goes into a\n"
+         "    // DisplayID extension block; otherwise the EDID is unchanged.\n"
+         "    information.size = finishHighRateEdid(\n"
+         "        information.edid.data(), width, height, guestRefreshHertz());\n"),
     ])
+    header = Path(__file__).with_name("edid_high_rate.hpp")
+    (root / "darwin/device/gpu/edid_high_rate.hpp").write_text(header.read_text())
     print("engine: guest refresh rate follows UML_GUEST_REFRESH_HZ")
 elif part == "app":
     edit("Andarium/Config/Info.plist", [

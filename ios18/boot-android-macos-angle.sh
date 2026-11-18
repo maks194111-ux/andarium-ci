@@ -35,6 +35,12 @@ if [ "${PROFILES:-all}" = fenceWake ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
   python3 "$HERE/fence_wakeup_patch.py" "$UPSTREAM" --compare
 fi
+if [ "${PROFILES:-all}" = pipeline ]; then
+  # The engine as the phone build has it: GPU-event scanout always on.
+  python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
+  c++ -std=c++20 -O1 -Wall "$HERE/test_edid_high_rate.cpp" -o "$WORK/test-edid-high-rate"
+  "$WORK/test-edid-high-rate"
+fi
 if [ "${PROFILES:-all}" = async ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
 fi
@@ -874,6 +880,104 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
+# Frame pipeline budgets. One boot of the stock image at the iPad's geometry;
+# arguments: name, release directory, refresh rate. Reports unique frames a
+# second that reached the display (SurfaceFlinger's count for the Settings
+# layer), SurfaceFlinger's missed frames and the application's frame times.
+pipeline_run() {
+  local name=$1 release=$2 hertz=$3 width=2048 height=2732
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
+  stage "pipeline $name: $hertz Hz, ${width}x${height}, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=$hertz UML_ANGLE_ASYNC=1; unset UML_MEMORY_LIMIT_MIB
+  local started=$(date +%s) booted=0 i
+  python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
+    --display offscreen --width "$width" --height "$height" --dpi 264 --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 90); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; tail -5 "$dir/launcher.log" | cut -c1-200; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then
+      booted=1; note "$name: boot_completed after about $(( $(date +%s) - started )) s"; break
+    fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed"; RESULT=1
+    tail -25 "$dir/launcher.log" | cut -c1-220
+  else
+    for i in $(seq 1 30); do
+      [ "$(guest shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r')" = 1 ] && break
+      sleep 5
+    done
+    sleep 75
+    guest shell 'getprop' > "$dir/getprop.txt" 2>&1
+    guest shell 'dumpsys SurfaceFlinger' > "$dir/surfaceflinger.txt" 2>&1
+    guest shell 'dumpsys display' > "$dir/display.txt" 2>&1
+    note "$name: properties: $(grep -E 'debug\.sf\.|ro\.soc\.model' "$dir/getprop.txt" | tr -d '\r' | tr '\n' ' ' | cut -c1-600)"
+    note "$name: display mode: $(grep -aE 'activeMode|renderRate|refreshRate=|fps=' "$dir/surfaceflinger.txt" | tr -d '\r' | head -4 | tr -s ' \n' ' ' | cut -c1-500)"
+    echo "--- $name: SurfaceFlinger vsync configuration"
+    grep -aiE 'phase|duration|VsyncConfig|offset' "$dir/surfaceflinger.txt" | head -30 | cut -c1-200
+    guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1
+    sleep 15
+    guest exec-out screencap -p > "$dir/settings.png" 2>/dev/null
+    guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 3
+    local round began took frames
+    for round in 1 2 3; do
+      # Slow drags: the finger moves the whole time, so every display period
+      # wants a new frame.
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear -enable" >/dev/null 2>&1
+      began=$(date +%s)
+      guest shell "for n in 1 2 3 4 5 6; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+      took=$(( $(date +%s) - began ))
+      guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-drag-$round.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-drag-$round.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats-drag-$round.txt" 2>&1
+      frames=$(tr -d '\r' < "$dir/gfxinfo-drag-$round.txt" | awk '/Total frames rendered/ {print $4}')
+      note "$name drags $round: ${frames:-0} app frames in $took s; $(grep -E 'Janky frames|50th percentile|90th percentile|99th percentile' "$dir/gfxinfo-drag-$round.txt" | head -4 | tr -d '\r' | tr -s ' \n' ' '); display: $(grep -E '^(totalFrames|missedFrames)|averageFPS' "$dir/timestats-drag-$round.txt" | tr -d '\r' | head -4 | tr -s ' \n' ' ')"
+      python3 "$HERE/framestats.py" "$name drags $round" "$dir/framestats-drag-$round.txt" || true
+      echo "--- $name drags $round: layers"
+      grep -E 'layerName|averageFPS|totalFrames|droppedFrames|jankyFrames' "$dir/timestats-drag-$round.txt" | cut -c1-150 | head -24
+      # Flings: ten quick swipes, the list coasts between them.
+      guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear" >/dev/null 2>&1
+      guest shell "for n in 1 2 3 4 5; do input swipe $x $low $x $high 150; sleep 1.2; input swipe $x $high $x $low 150; sleep 1.2; done"
+      guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-fling-$round.txt" 2>&1
+      guest shell "dumpsys gfxinfo com.android.settings" > "$dir/gfxinfo-fling-$round.txt" 2>&1
+      note "$name flings $round: $(grep -E 'Total frames rendered|Janky frames|50th percentile|90th percentile|99th percentile' "$dir/gfxinfo-fling-$round.txt" | head -5 | tr -d '\r' | tr -s ' \n' ' '); display: $(grep -E '^(totalFrames|missedFrames)|averageFPS' "$dir/timestats-fling-$round.txt" | tr -d '\r' | head -4 | tr -s ' \n' ' ')"
+      # The notification shade, four times down and up.
+      guest shell "dumpsys gfxinfo com.android.systemui reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear" >/dev/null 2>&1
+      guest shell "for n in 1 2 3 4; do cmd statusbar expand-notifications; sleep 1.5; cmd statusbar collapse; sleep 1.5; done"
+      guest shell "dumpsys gfxinfo com.android.systemui" > "$dir/gfxinfo-shade-$round.txt" 2>&1
+      guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats-shade-$round.txt" 2>&1
+      note "$name shade $round: $(grep -E 'Total frames rendered|Janky frames|50th percentile|90th percentile|99th percentile' "$dir/gfxinfo-shade-$round.txt" | head -5 | tr -d '\r' | tr -s ' \n' ' '); display: $(grep -E '^(totalFrames|missedFrames)' "$dir/timestats-shade-$round.txt" | tr -d '\r' | head -2 | tr -s ' \n' ' ')"
+    done
+    guest shell "dumpsys SurfaceFlinger --timestats -disable" >/dev/null 2>&1
+    guest exec-out screencap -p > "$dir/after.png" 2>/dev/null
+    guest logcat -d 2>/dev/null | grep -aE 'FATAL EXCEPTION|SurfaceFlinger.*(E |error)|Do not have permissions to set' | head -20 > "$dir/log-errors.txt"
+    note "$name: fatal or refused-property log lines: $(wc -l < "$dir/log-errors.txt" | tr -d ' ')"
+    head -8 "$dir/log-errors.txt" | cut -c1-200
+    grep -a "scanout" "$dir/launcher.log" | tail -3 | cut -c1-220
+  fi
+  kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name"; sleep 5
+}
+if [ "${PROFILES:-all}" = pipeline ]; then
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
+  TUNED="$WORK/release-sf-pipeline"
+  python3 "$HERE/sf_pipeline/splice_odm.py" "$STOCK" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
+    e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+  # Alternating order, because the hosted Mac's speed drifts within a job.
+  pipeline_run stock120-1 "$STOCK" 120
+  pipeline_run tuned120-1 "$TUNED" 120
+  pipeline_run tuned120-2 "$TUNED" 120
+  pipeline_run stock120-2 "$STOCK" 120
+  pipeline_run stock60 "$STOCK" 60
+  pipeline_run tuned60 "$TUNED" 60
+  echo "RESULT: frame pipeline comparison finished (status $RESULT)."
+  exit "$RESULT"
+fi
 DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
