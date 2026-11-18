@@ -47,9 +47,11 @@ fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
-case "${PROFILES:-all}" in videocache|videoipad2) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
-if [ "${PROFILES:-all}" = video ] || [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
-if [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
+case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
+# Every 120 Hz recording profile shares the video120 setup.
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache) V120=1;; esac
+if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
+if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
   stage "mapping wait: original correctness tests under both policies"
   bash "$HERE/test_mapping_wait.sh" "$UPSTREAM"
@@ -1171,11 +1173,11 @@ if [ "${PROFILES:-all}" = pipeline ]; then
   echo "RESULT: frame pipeline comparison finished (status $RESULT)."
   exit "$RESULT"
 fi
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake|video120) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake) DEEP=1;; esac; [ "$V120" = 1 ] && DEEP=1
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
-  if [ "${PROFILES:-all}" = video ] || [ "${PROFILES:-all}" = video120 ]; then
+  if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then
     stage "tools for the video (ffmpeg, LZ4 reader)"
     command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
     ffmpeg -version | head -1 || { echo "RESULT: ffmpeg could not be installed."; exit 1; }
