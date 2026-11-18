@@ -1,0 +1,7 @@
+# Andarium: background applications and services share the first guest
+# processors; the application on screen and the compositor keep the others.
+# These are Android's own scheduling groups; nothing is disabled.
+on property:sys.boot_completed=1
+    write /dev/cpuset/background/cpus 0
+    write /dev/cpuset/system-background/cpus 0-1
+    write /dev/cpuset/restricted/cpus 0-1

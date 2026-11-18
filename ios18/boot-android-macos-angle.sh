@@ -658,6 +658,7 @@ record_video() {
     guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null 2>&1"
     note "$name: SurfaceFlinger budget property: [$(guest shell getprop debug.sf.late.sf.duration 2>/dev/null | tr -d '\r\n')], mode: $(guest shell dumpsys SurfaceFlinger 2>/dev/null | grep -a -m1 -o 'vsyncRate=[0-9.]* Hz')"
     pressure "$name before the recording"
+    note "$name: background limits: dex2oat threads [$(guest shell getprop dalvik.vm.dex2oat-threads 2>/dev/null | tr -d '\r\n')], background [$(guest shell getprop dalvik.vm.background-dex2oat-threads 2>/dev/null | tr -d '\r\n')]; cpusets background [$(guest shell cat /dev/cpuset/background/cpus 2>&1 | tr -d '\r\n')], system-background [$(guest shell cat /dev/cpuset/system-background/cpus 2>&1 | tr -d '\r\n')], top-app [$(guest shell cat /dev/cpuset/top-app/cpus 2>&1 | tr -d '\r\n')]"
     touch "$record.on"; sleep 2
     mark "home screen, idle"; sleep 4
     mark "Settings opens"
@@ -1253,6 +1254,11 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
       e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     shasum -a 256 "$TUNED/guest/system.img"
     if [ "${VIDEO_ONLY_FIX11:-1}" != 1 ]; then record_video video-fix9 "$GAPPS_RELEASE" "FIX9 Google image, 120 Hz"; fi
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" \
+      e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    record_video video-bgquiet "$QUIET" "FIX11 plus background work kept to the first processors, 120 Hz"
+    rm -rf "$QUIET"
     record_video video-fix11 "$TUNED" "FIX11 Google image (frame budgets), 120 Hz"
     echo "RESULT: 120 Hz video recording finished (status $RESULT)."
     exit "$RESULT"
