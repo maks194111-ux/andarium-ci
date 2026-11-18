@@ -1156,6 +1156,71 @@ guestprof_run() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name" "$dir"/*.tsv; sleep 5
 }
+# Which guest code runs while applications start cold: the engine's sampler
+# over three cold launches of Settings and of Google Play, by library and function.
+launchprof_run() {
+  local name=$1 release=$2
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  stage "launch profile $name: 120 Hz, 2048x2732, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=120 UML_ANGLE_ASYNC=1; unset UML_MEMORY_LIMIT_MIB
+  export DARWIN_UML_GUEST_SAMPLES="$dir/samples.tsv:1000"
+  local booted=0 i n
+  python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
+    --display offscreen --width 2048 --height 2732 --dpi 264 --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 120); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=1; break; fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed"; RESULT=1
+  else
+    sleep 60
+    guest shell 'settings put global device_provisioned 1; settings put secure user_setup_complete 1
+      for wizard in org.lineageos.setupwizard com.google.android.setupwizard; do pm disable-user --user 0 $wizard; am force-stop $wizard; done
+      input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard
+      am start -W -a android.intent.action.MAIN -c android.intent.category.HOME' > "$dir/provision.txt" 2>&1
+    sleep 600
+    guest shell 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 10
+    note "$name: load before the launches: $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
+    local elves="$WORK/guest-elves"; mkdir -p "$elves"
+    for path in /system/lib64 /vendor/lib64 /apex/com.android.art/lib64 /apex/com.android.runtime/lib64 /apex/com.android.i18n/lib64 \
+                /system/framework /system_ext/framework /system/bin/surfaceflinger /system/bin/app_process64 /apex/com.android.runtime/bin/linker64 \
+                $(guest shell 'for p in com.android.settings com.android.vending com.android.systemui; do dirname $(pm path $p | head -1 | cut -d: -f2); done' 2>/dev/null | tr -d '\r'); do
+      mkdir -p "$elves$(dirname "$path")"
+      guest pull "$path" "$elves$path" > /dev/null 2>&1 || echo "pull failed: $path"
+    done
+    find "$elves" -name '*.apk' -delete; du -sh "$elves"; find "$elves" -name '*.odex' -o -name '*.oat' | head -40
+    local kernel="$UPSTREAM/.build/kernel/artifacts" target part
+    for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity"; do
+      part=${target%%/*}
+      cp "$dir/samples.tsv" "$dir/$part-before.tsv"
+      for n in 1 2 3; do
+        guest shell "am force-stop $part" >/dev/null 2>&1; sleep 3
+        note "$name: cold launch $n of $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+        guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 2
+      done
+      cp "$dir/samples.tsv" "$dir/$part-after.tsv"
+      guest shell "ps -AT -o PID,TID,CMD,NAME" > "$dir/$part-threads.txt" 2>&1
+      python3 tests/perf/symbolize_guest_samples.py "$dir/$part-after.tsv" "$elves" "$kernel" --baseline "$dir/$part-before.tsv" --top 70 > "$dir/$part-all.txt" 2>&1
+      echo "--- $name: $part, all threads"; cut -c1-190 "$dir/$part-all.txt" | head -190
+      local thread
+      for thread in $(awk '/by guest thread/ {on=1; next} /by library/ {on=0} on && NF==2 {print $2}' "$dir/$part-all.txt" | head -3); do
+        python3 tests/perf/symbolize_guest_samples.py "$dir/$part-after.tsv" "$elves" "$kernel" --baseline "$dir/$part-before.tsv" --top 45 --thread "${thread#0x}" > "$dir/$part-thread-$thread.txt" 2>&1
+        echo "--- $name: $part, thread $thread"; sed -n '/by library/,/host samples/p' "$dir/$part-thread-$thread.txt" | cut -c1-190 | head -75
+      done
+    done
+    echo "--- $name: how things are compiled"
+    guest shell "dumpsys package dexopt | grep -A4 -E '\[com.android.settings\]|\[com.android.vending\]|\[com.android.systemui\]|\[com.google.android.gms\]' | cut -c1-200; getprop | grep -E 'dalvik.vm|pm.dexopt' | cut -c1-160; ls -la /data/misc/apexdata/com.android.art/dalvik-cache/arm64 2>&1 | head; ls /system/framework/arm64 | head -40; ls -la /system/framework/oat/arm64 2>&1 | head -20" 2>&1 | tr -d '\r'
+  fi
+  unset DARWIN_UML_GUEST_SAMPLES
+  kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name" "$dir"/*.tsv; sleep 5
+}
 if [ "${PROFILES:-all}" = guestprof ]; then
   STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
   TUNED="$WORK/release-sf-pipeline"
@@ -1191,7 +1256,7 @@ if [ "${PROFILES:-all}" = pipeline ]; then
   echo "RESULT: frame pipeline comparison finished (status $RESULT)."
   exit "$RESULT"
 fi
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake) DEEP=1;; esac; [ "$V120" = 1 ] && DEEP=1
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake|launchprof) DEEP=1;; esac; [ "$V120" = 1 ] && DEEP=1
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -1298,6 +1363,13 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     record_video video-quiet "$QUIET" "FIX12 image"
     echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = launchprof ]; then
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    launchprof_run launchprof "$QUIET"
+    echo "RESULT: launch profile finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videolaunch ]; then
