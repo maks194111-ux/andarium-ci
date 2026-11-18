@@ -49,7 +49,7 @@ python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -543,6 +543,17 @@ GUEST
   sleep 5
 }
 
+# Launch times of three applications: cold (process ended first), then with the process alive.
+launch_times() {
+  local name=$1 tag=$2 target
+  for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
+    guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 3
+    note "$name: [$tag] cold launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+    guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 4
+    note "$name: [$tag] launch with the process alive $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+    guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 4
+  done
+}
 set +e
 # The Google image the phone build carries, on a device-like budget: does the
 # guest kernel end by itself, and what does it say when it does? The package
@@ -682,14 +693,21 @@ record_video() {
     guest shell "input swipe $x $low $x $high 300; sleep 4; input swipe $x $low $x $high 600; sleep 2; input swipe $x $high $x $low 600; sleep 2; input keyevent KEYCODE_HOME"; sleep 5
     mark "end"
     sleep 1; rm -f "$record.on"
-    # Launch times, cold then warm, as a person meets them.
-    for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
-      guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 2
-      note "$name: cold launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
-      guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
-      note "$name: warm launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
-      guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
-    done
+    launch_times "$name" "as shipped"
+    if [ "${LAUNCH_AB:-0}" = 1 ]; then
+      # Same boot: how the three applications are compiled now, then full compilation, then the launches again.
+      for package in com.android.settings com.android.vending com.android.documentsui; do
+        note "$name: $package compiled as: $(guest shell "dumpsys package dexopt | grep -A3 '\\[$package\\]' | grep -oE 'status=[a-z-]+' | sort | uniq -c" 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
+        local t0=$(date +%s)
+        note "$name: full compilation of $package: $(guest shell "cmd package compile -m speed -f $package" 2>&1 | tr -d '\r' | tail -1) in $(( $(date +%s) - t0 )) s"
+      done
+      sleep 30
+      launch_times "$name" "after full compilation"
+      launch_times "$name" "after full compilation, second pass"
+      guest shell 'settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5' >/dev/null 2>&1
+      launch_times "$name" "full compilation and half-length animations"
+      note "$name: boot image and system server: $(guest shell "dumpsys package dexopt | grep -B1 -A4 -iE 'services.jar|boot image' | grep -oE 'status=[a-z-]+|filter=[a-z-]+' | sort | uniq -c; getprop dalvik.vm.systemservercompilerfilter; getprop dalvik.vm.boot-image; getprop pm.dexopt.install; getprop pm.dexopt.bg-dexopt; getprop pm.dexopt.first-boot; getprop dalvik.vm.usejit" 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
+    fi
     echo "--- $name: engine lines about its code cache and memory"; grep -aiE 'gadget cache|jetsam|footprint' "$dir/launcher.log" | tail -40 | cut -c1-220
     note "$name: memory: $(guest shell 'grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; grep -E "^(pswpin|pswpout|pgmajfault) " /proc/vmstat' 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     pressure "$name after the recording"
@@ -1280,6 +1298,15 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     record_video video-quiet "$QUIET" "FIX12 image"
     echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videolaunch ]; then
+    # Launch times before and after full compilation of the application, in one boot.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12 LAUNCH_AB=1
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    record_video video-launch "$QUIET" "FIX12 image, launches before and after full compilation"
+    echo "RESULT: launch comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videocache ]; then
