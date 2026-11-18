@@ -31,6 +31,10 @@ python3 "$HERE/engine_build_patch.py" "$UPSTREAM" macos
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
+if [ "${PROFILES:-all}" = fenceWake ]; then
+  python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
+  python3 "$HERE/fence_wakeup_patch.py" "$UPSTREAM" --compare
+fi
 if [ "${PROFILES:-all}" = async ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
 fi
@@ -800,7 +804,7 @@ GUEST
     guest shell 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io; cat /proc/loadavg; grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; cat /proc/diskstats' > "$dir/settled-resources.txt" 2>&1
     scenario settled
     scenario settled2
-    if [ "${DEEP_ASYNC:-0}" = 1 ]; then
+    if [ "${DEEP_ASYNC:-0}" = 1 ] || [ "${DEEP_FENCE_WAKE:-0}" = 1 ]; then
       if [ "$quiet" -lt 2 ]; then
         echo "RESULT: guest did not settle; no performance claim may be made"
       fi
@@ -811,9 +815,9 @@ GUEST
         local order="0 1"
         [ "$round" = 2 ] && order="1 0"
         for variant in $order; do
-          printf '%s\n' "$variant" > "$UML_ANGLE_ASYNC_CONTROL"
+          printf '%s\n' "$variant" > "${UML_FENCE_WAKE_CONTROL:-${UML_ANGLE_ASYNC_CONTROL:-}}"
           sleep 5
-          scenario "async${round}-${variant}"
+          scenario "${PROFILES}${round}-${variant}"
         done
       done
     fi
@@ -870,7 +874,7 @@ GUEST
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
-DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async) DEEP=1;; esac
+DEEP=0; case "${PROFILES:-all}" in deepres|deepaot|deepcpu|deepab|deepapp|async|fenceWake) DEEP=1;; esac
 if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then
   source_url="${GAPPS_IPA_URL:-}"
   if [ "${PROFILES:-all}" = aot ] || [ "${PROFILES:-all}" = video ] || [ "$DEEP" = 1 ]; then source_url="${GAPPS_FIX9_IPA_URL:-}"; fi
@@ -891,6 +895,13 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   done
   rm -f "$WORK/gapps.ipa"; ls -la "$GAPPS_RELEASE/guest"; export GAPPS_RELEASE
   shasum -a 256 "$GAPPS_RELEASE/guest/system.img" > "$OUT/baseline-system-sha256.txt"
+  if [ "${PROFILES:-all}" = fenceWake ]; then
+    export UML_FENCE_WAKE_CONTROL="$WORK/fence-wake-control" UML_ANGLE_ASYNC=1
+    printf '0\n' > "$UML_FENCE_WAKE_CONTROL"
+    SETTLE_MINUTES=25 DEEP_FENCE_WAKE=1 deep_run fenceWake "$GAPPS_RELEASE" 2048 2732 264 "FIX9 image; same async engine, compare fence timer scheduling"
+    for mode in 0 1; do grep -aq "fence wake coalescing=$mode" "$OUT/fenceWake/launcher.log" || exit 1; done
+    exit "$RESULT"
+  fi
   if [ "${PROFILES:-all}" = async ]; then
     export UML_ANGLE_ASYNC_CONTROL="$WORK/async-control"
     printf '0\n' > "$UML_ANGLE_ASYNC_CONTROL"

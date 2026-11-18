@@ -6,6 +6,10 @@ on:
       angle_run:
         description: Run id of the ANGLE build that holds the angle-metal artifact
         required: true
+      fence_wake:
+        description: Preserve the earliest pending GPU poll deadline
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -44,6 +48,8 @@ jobs:
             meson==1.12.1 Mako==1.4.3 packaging==26.3 PyYAML==6.0.3 ply==3.11
           echo "PYTHONPATH=$RUNNER_TEMP/python-tools" >> "$GITHUB_ENV"
       - name: Staged engine build
+        env:
+          FENCE_WAKE_EXPERIMENT: ${{ inputs.fence_wake && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail
