@@ -47,6 +47,7 @@ fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
+case "${PROFILES:-all}" in videocache|videoipad2) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 if [ "${PROFILES:-all}" = video ] || [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = video120 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -687,7 +688,7 @@ record_video() {
       note "$name: warm launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
       guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 3
     done
-    echo "--- $name: engine lines about its code cache and memory"; grep -aiE 'cache|flush|evict|jetsam|budget|footprint' "$dir/launcher.log" | tail -25 | cut -c1-220
+    echo "--- $name: engine lines about its code cache and memory"; grep -aiE 'gadget cache|jetsam|footprint' "$dir/launcher.log" | tail -40 | cut -c1-220
     note "$name: memory: $(guest shell 'grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; grep -E "^(pswpin|pswpout|pgmajfault) " /proc/vmstat' 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     pressure "$name after the recording"
     guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
@@ -1277,6 +1278,17 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     record_video video-quiet "$QUIET" "FIX12 image"
     echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videocache ]; then
+    # Does the size of the translated-code cache decide launch times? Same guest, three budgets.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    UML_GADGET_CACHE_BUDGET_MIB=96 record_video video-cache-96 "$QUIET" "FIX12 image, 96 MiB code cache"
+    UML_GADGET_CACHE_BUDGET_MIB=272 record_video video-cache-272 "$QUIET" "FIX12 image, 272 MiB code cache"
+    record_video video-cache-default "$QUIET" "FIX12 image, default code cache"
+    echo "RESULT: code cache comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videoipad ]; then
