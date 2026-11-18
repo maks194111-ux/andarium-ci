@@ -35,7 +35,7 @@ if [ "${PROFILES:-all}" = fenceWake ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
   python3 "$HERE/fence_wakeup_patch.py" "$UPSTREAM" --compare
 fi
-if [ "${PROFILES:-all}" = pipeline ] || [ "${PROFILES:-all}" = hostcpu ]; then
+if [ "${PROFILES:-all}" = pipeline ] || [ "${PROFILES:-all}" = hostcpu ] || [ "${PROFILES:-all}" = guestprof ]; then
   # The engine as the phone build has it: GPU-event scanout always on.
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
   c++ -std=c++20 -O1 -Wall "$HERE/test_edid_high_rate.cpp" -o "$WORK/test-edid-high-rate"
@@ -1036,6 +1036,79 @@ hostcpu_run() {
   pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
   rm -rf "$WORK/instance-$name"; sleep 5
 }
+# Which guest functions the processors execute while Settings is dragged at
+# 120 Hz: the engine's own guest code sampler, symbolized against the guest's
+# libraries, for all threads and for each of the four busiest.
+guestprof_run() {
+  local name=$1 release=$2 hertz=$3 width=2048 height=2732
+  local dir="$OUT/$name"; mkdir -p "$dir"
+  local x=$((width / 2)) low=$((height * 3 / 4)) high=$((height / 4))
+  stage "guest profile $name: $hertz Hz, ${width}x${height}, $CPUS guest processors"
+  export UML_GUEST_REFRESH_HZ=$hertz UML_ANGLE_ASYNC=1; unset UML_MEMORY_LIMIT_MIB
+  export DARWIN_UML_GUEST_SAMPLES="$dir/samples.tsv:1000"
+  local booted=0 i
+  python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --provision --emulator "$EMULATOR" \
+    --display offscreen --width "$width" --height "$height" --dpi 264 --audio-output null \
+    --cpus "$CPUS" --memory 3G --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    > "$dir/launcher.log" 2>&1 &
+  local launcher=$!
+  for i in $(seq 1 90); do
+    sleep 10
+    kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; break; }
+    if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then booted=1; break; fi
+  done
+  if [ "$booted" != 1 ]; then
+    note "RESULT: $name did not reach boot_completed"; RESULT=1
+  else
+    for i in $(seq 1 30); do
+      [ "$(guest shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r')" = 1 ] && break
+      sleep 5
+    done
+    sleep 90
+    guest shell "input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; am start -W -a android.settings.SETTINGS" >/dev/null 2>&1
+    sleep 15
+    guest shell "input swipe $x $low $x $high 600; input swipe $x $high $x $low 600"; sleep 5
+    cp "$dir/samples.tsv" "$dir/before.tsv"
+    guest shell "dumpsys gfxinfo com.android.settings reset >/dev/null; dumpsys SurfaceFlinger --timestats -clear -enable" >/dev/null 2>&1
+    guest shell "for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do input swipe $x $low $x $high 1200; input swipe $x $high $x $low 1200; done"
+    sleep 3
+    cp "$dir/samples.tsv" "$dir/after.tsv"
+    guest shell "dumpsys SurfaceFlinger --timestats -dump -maxlayers 6" > "$dir/timestats.txt" 2>&1
+    guest shell "dumpsys gfxinfo com.android.settings framestats" > "$dir/framestats.txt" 2>&1
+    note "$name: display $(grep -E '^(totalFrames|missedFrames)' "$dir/timestats.txt" | tr -d '\r' | tr -s ' \n' ' ')"
+    python3 "$HERE/framestats.py" "$name" "$dir/framestats.txt" || true
+    ls -la "$dir"/*.tsv
+    local elves="$WORK/guest-elves"; mkdir -p "$elves"
+    for path in /system/lib64 /vendor/lib64 /apex/com.android.art/lib64 /apex/com.android.runtime/lib64 \
+                /system/framework/arm64 /system/bin/surfaceflinger /system/bin/app_process64 /apex/com.android.runtime/bin/linker64; do
+      mkdir -p "$elves$(dirname "$path")"
+      guest pull "$path" "$elves$path" > /dev/null 2>&1 || echo "pull failed: $path"
+    done
+    du -sh "$elves"
+    local kernel="$UPSTREAM/.build/kernel/artifacts"
+    python3 tests/perf/symbolize_guest_samples.py "$dir/after.tsv" "$elves" "$kernel" --baseline "$dir/before.tsv" --top 45 > "$dir/all.txt" 2>&1
+    echo "--- $name: all threads"; cut -c1-170 "$dir/all.txt" | head -130
+    local thread
+    for thread in $(awk '/by guest thread/ {on=1; next} /by library/ {on=0} on && NF==2 {print $2}' "$dir/all.txt" | head -4); do
+      python3 tests/perf/symbolize_guest_samples.py "$dir/after.tsv" "$elves" "$kernel" --baseline "$dir/before.tsv" --top 40 --thread "${thread#0x}" > "$dir/thread-$thread.txt" 2>&1
+      echo "--- $name: thread $thread"; sed -n '/by library/,/host samples/p' "$dir/thread-$thread.txt" | cut -c1-170 | head -70
+    done
+    guest shell "ps -AT -o TID,CMD,NAME" > "$dir/threads.txt" 2>&1
+  fi
+  unset DARWIN_UML_GUEST_SAMPLES
+  kill -INT "$launcher" 2>/dev/null; sleep 15; kill -9 "$launcher" 2>/dev/null
+  pkill -9 -f uml-darwin-android17 2>/dev/null; adb disconnect "$SERIAL" >/dev/null 2>&1
+  rm -rf "$WORK/instance-$name" "$dir"/*.tsv; sleep 5
+}
+if [ "${PROFILES:-all}" = guestprof ]; then
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
+  TUNED="$WORK/release-sf-pipeline"
+  python3 "$HERE/sf_pipeline/splice_odm.py" "$STOCK" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
+    e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+  guestprof_run guest120 "$TUNED" 120
+  echo "RESULT: guest code profile finished (status $RESULT)."
+  exit "$RESULT"
+fi
 if [ "${PROFILES:-all}" = hostcpu ]; then
   STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
   TUNED="$WORK/release-sf-pipeline"
