@@ -629,7 +629,20 @@ record_video() {
     if [ "${VIDEO_SETTLE_MINUTES:-0}" != 0 ]; then
       # First-boot background work (Google services, package optimisation) ends first.
       note "$name: waiting ${VIDEO_SETTLE_MINUTES} minutes for first-boot work; load before: $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
-      sleep $(( VIDEO_SETTLE_MINUTES * 60 ))
+      local minute
+      for minute in $(seq 1 "$VIDEO_SETTLE_MINUTES"); do
+        sleep 52
+        if [ $(( minute % 4 )) = 0 ]; then
+          guest shell "top -b -n 1 -d 5 -m 14 -o PID,USER,%CPU,RES,TIME+,CMDLINE -s 3" > "$dir/top-minute-$minute.txt" 2>&1
+          echo "--- $name: minute $minute, load $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
+          grep -aE '^ *[0-9]+ ' "$dir/top-minute-$minute.txt" | head -12 | cut -c1-150
+          grep -aE 'Mem:|Swap:|%cpu' "$dir/top-minute-$minute.txt" | cut -c1-150
+        fi
+      done
+      guest shell "top -H -b -n 1 -d 5 -m 30 -s 4" > "$dir/top-threads-settled.txt" 2>&1
+      echo "--- $name: threads after the wait"; grep -aE '^ *[0-9]+ ' "$dir/top-threads-settled.txt" | head -25 | cut -c1-150
+      guest shell "dumpsys activity processes | grep -aE 'dexopt|BackgroundDexOpt'; dumpsys jobscheduler | grep -aE 'RUNNING|running' | head -20; cmd package bg-dexopt-job --status 2>&1 | head -5; dumpsys package dexopt | grep -acE 'status=verify|status=run-from-apk'; dumpsys package dexopt | grep -acE 'status=speed'" > "$dir/background-work.txt" 2>&1
+      echo "--- $name: background work"; head -30 "$dir/background-work.txt" | cut -c1-200
       guest shell 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 10
       note "$name: load after the wait: $(guest shell cat /proc/loadavg 2>/dev/null | tr -d '\r\n')"
     fi
@@ -1230,7 +1243,7 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$TUNED" "$HERE/sf_pipeline/odm-sfpipeline.img" \
       e0bbc71410e9de8d6120f8d3a57048e5a282bb740962e8f7ce00f3ee0ec97ac2 || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     shasum -a 256 "$TUNED/guest/system.img"
-    record_video video-fix9 "$GAPPS_RELEASE" "FIX9 Google image, 120 Hz"
+    if [ "${VIDEO_ONLY_FIX11:-1}" != 1 ]; then record_video video-fix9 "$GAPPS_RELEASE" "FIX9 Google image, 120 Hz"; fi
     record_video video-fix11 "$TUNED" "FIX11 Google image (frame budgets), 120 Hz"
     echo "RESULT: 120 Hz video recording finished (status $RESULT)."
     exit "$RESULT"
