@@ -19,6 +19,9 @@ python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
 python3 "$HERE/report_patch.py" "$UPSTREAM"
 python3 "$HERE/diagnostics_patch.py" "$UPSTREAM" app
 python3 "$HERE/device_capabilities_patch.py" "$UPSTREAM"
+if [ "${FLAT_HUD:-0}" = 1 ]; then
+  python3 "$HERE/flat_hud_patch.py" "$UPSTREAM"
+fi
 if [ "${PRESENTATION_EXPERIMENT:-0}" = 1 ]; then
   python3 - <<'PY'
 from pathlib import Path

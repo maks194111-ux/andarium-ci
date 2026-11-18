@@ -9,6 +9,10 @@ on:
       presentation:
         description: Enable experimental adaptive presentation pacing
         default: "0"
+      flat_hud:
+        description: Use an opaque stats capsule instead of live system glass
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -43,6 +47,7 @@ jobs:
         shell: bash
         env:
           PRESENTATION_EXPERIMENT: ${{ inputs.presentation }}
+          FLAT_HUD: ${{ inputs.flat_hud && '1' || '0' }}
         run: |
           set -euo pipefail
           bash ci/ios18/build-app-ios18.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/engine-download/engine-ios18.tar.gz"
