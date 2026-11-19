@@ -201,6 +201,15 @@ else
 fi
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
 ls .build/kernel/artifacts
+if [ -n "${KERNEL_TARBALL:-}" ]; then
+  # The kernel release string ends in the commit of the replayed patch series,
+  # and a replay here makes the same tree under another commit. Upstream's own
+  # note calls commit identities provenance, so the descriptor takes this one.
+  BUILT_RELEASE=$(cat .build/kernel/artifacts/*/kernel/kernel.release)
+  echo "kernel release built here: $BUILT_RELEASE"
+  sed -i '' "s|^UML_KERNEL_ARTIFACT_RELEASE=.*|UML_KERNEL_ARTIFACT_RELEASE='$BUILT_RELEASE'|" kernel/mainline-6.18/artifacts/accepted-android-4k.env
+  grep -q "UML_KERNEL_ARTIFACT_RELEASE='$BUILT_RELEASE'" kernel/mainline-6.18/artifacts/accepted-android-4k.env
+fi
 [ "$NEWUP" = 1 ] || python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
 curl -fsSL --retry 3 -o "$WORK/release.tar.gz" "$RELEASE_URL"
 tar -C .build/android/releases -xzf "$WORK/release.tar.gz"
