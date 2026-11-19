@@ -31,6 +31,9 @@ if [ "$NEWUP" = 1 ]; then
   for tool in zstd lz4 xz; do HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"; done
   git clone -q --depth=1 -b v1.8.6 https://github.com/erofs/erofs-utils.git "$WORK/erofs-utils"
   BREW=$(brew --prefix)
+  # macOS has no getrandom(); the reader's identifier helper gets its bytes from getentropy().
+  sed -i '' 's/r = getrandom(out, size, flags);/r = getentropy(out, size) == 0 ? (int)size : -1; (void)flags;/' "$WORK/erofs-utils/lib/uuid.c"
+  grep -q getentropy "$WORK/erofs-utils/lib/uuid.c" || { echo "RESULT: the EROFS reader source changed."; exit 1; }
   ( cd "$WORK/erofs-utils" && { ./autogen.sh && \
     PKG_CONFIG_PATH="$BREW/lib/pkgconfig:$BREW/opt/zstd/lib/pkgconfig:$BREW/opt/lz4/lib/pkgconfig:$BREW/opt/xz/lib/pkgconfig" \
     CPPFLAGS="-I$BREW/include" LDFLAGS="-L$BREW/lib" \
