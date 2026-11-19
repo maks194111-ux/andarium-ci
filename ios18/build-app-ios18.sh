@@ -36,6 +36,7 @@ path.write_text(text.replace(marker, marker +
 PY
 fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" app
+python3 "$HERE/cores_patch.py" "$UPSTREAM"
 # The bundle's system image directory: filled in when the IPA is assembled.
 mkdir -p .build/andarium-system
 echo "The Android system image is added when the IPA is assembled." > .build/andarium-system/PLACEHOLDER.txt
