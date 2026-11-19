@@ -6,6 +6,13 @@ on:
       engine_run:
         description: Run id of the engine build that holds the engine-ios18 artifact
         required: true
+      upstream_ref:
+        description: Engine source commit
+        default: ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+      new_tree:
+        description: Newer app sources (built for iOS 27, no iOS 18 interface layer)
+        type: boolean
+        default: false
       presentation:
         description: Enable experimental adaptive presentation pacing
         default: "0"
@@ -35,7 +42,7 @@ jobs:
           git -C ci checkout --detach FETCH_HEAD
           git init upstream
           git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
-          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream fetch --depth=1 origin "${{ inputs.upstream_ref }}"
           git -C upstream checkout --detach FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
@@ -48,6 +55,7 @@ jobs:
         env:
           PRESENTATION_EXPERIMENT: ${{ inputs.presentation }}
           FLAT_HUD: ${{ inputs.flat_hud && '1' || '0' }}
+          NEWUP: ${{ inputs.new_tree && '1' || '0' }}
         run: |
           set -euo pipefail
           bash ci/ios18/build-app-ios18.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/engine-download/engine-ios18.tar.gz"

@@ -12,7 +12,10 @@ cd "$UPSTREAM"
 mkdir -p .build
 tar -C .build -xzf "$ENGINE"
 ls .build/kernarium-xcframeworks
-python3 "$HERE/apply.py" "$UPSTREAM"
+# The iOS 18 interface layer is written against the older app sources. The
+# newer sources are built for iOS 27 as they are.
+FLOOR=18.0
+if [ "${NEWUP:-0}" = 1 ]; then FLOOR=27.0; else python3 "$HERE/apply.py" "$UPSTREAM"; fi
 python3 "$HERE/app_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" app
 python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
@@ -44,7 +47,7 @@ echo "The Android system image is added when the IPA is assembled." > .build/and
 set +e
 xcodebuild -project Andarium/Andarium.xcodeproj -scheme Andarium -configuration Release \
   -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$WORK/app-build" \
-  IPHONEOS_DEPLOYMENT_TARGET=18.0 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  IPHONEOS_DEPLOYMENT_TARGET=$FLOOR CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY= build > "$WORK/xcodebuild.log" 2>&1
 status=$?
 set -e

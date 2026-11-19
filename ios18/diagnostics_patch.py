@@ -21,10 +21,14 @@ root = Path(sys.argv[1])
 part = sys.argv[2]
 
 
-def edit(relative: str, changes) -> None:
+def edit(relative: str, changes, optional: bool = False) -> None:
     path = root / relative
     text = path.read_text()
     for old, new in changes:
+        if optional and text.count(old) == 0:
+            # A newer app layout has no such screen; the option keeps its default.
+            print(f"{relative}: optional setting not added (layout differs)")
+            return
         if text.count(old) != 1:
             raise SystemExit(f"{relative}: expected one match for {old[:60]!r}, found {text.count(old)}")
         text = text.replace(old, new)
@@ -175,7 +179,7 @@ enum PerformanceReport {
         }
         .id("display")
 """),
-    ])
+    ], optional=True)
     edit("Andarium/Andarium/Shared/HomeSections.swift", [
         ("""struct DisplaySection: View {
     @Environment(AppModel.self) private var model
@@ -185,14 +189,14 @@ enum PerformanceReport {
     @AppStorage(PerformanceReport.scaleKey) private var scale125 = false
     @AppStorage(PerformanceReport.limitKey) private var limit60 = false
 """),
-    ])
+    ], optional=True)
     edit("GuestHost/Sources/GuestDisplay.swift", [
         ("        let scale = retinaMode ? screen.nativeScale : 1\n",
          "        // Between points and Retina: the guest draws 1.25 pixels a point\n"
          "        // and the layer scales the picture up to the screen.\n"
          "        let pointScale: CGFloat = UserDefaults.standard.bool(forKey: \"andarium.pointScale125\") ? 1.25 : 1\n"
          "        let scale = retinaMode ? screen.nativeScale : pointScale\n"),
-    ])
+    ], optional=True)
     print("app: sessions write display metrics; Settings copies the performance report; 1.25x drawing scale")
 else:
     raise SystemExit("part must be engine or app")

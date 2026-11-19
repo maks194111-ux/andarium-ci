@@ -19,6 +19,31 @@ for tool in autoconf automake libtool pkg-config ninja cmake; do
   command -v "${tool/libtool/glibtoolize}" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"
 done
 
+# The newer engine tree: ahead-of-time code for the system libraries.
+NEWUP=${NEWUP:-0}
+if [ "$NEWUP" = 1 ]; then
+  stage "EROFS reader with Zstandard (the ahead-of-time tool needs it)"
+  for tool in zstd lz4 xz; do HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"; done
+  git clone -q --depth=1 -b v1.8.6 https://github.com/erofs/erofs-utils.git "$WORK/erofs-utils"
+  BREW=$(brew --prefix)
+  # macOS has no getrandom(); the reader's identifier helper gets its bytes from getentropy().
+  sed -i '' 's/r = getrandom(out, size, flags);/r = getentropy(out, size) == 0 ? (int)size : -1; (void)flags;/' "$WORK/erofs-utils/lib/uuid.c"
+  grep -c getentropy "$WORK/erofs-utils/lib/uuid.c" >/dev/null || { echo "RESULT: the EROFS reader source changed."; exit 1; }
+  ( cd "$WORK/erofs-utils" && { ./autogen.sh && \
+    PKG_CONFIG_PATH="$BREW/lib/pkgconfig:$BREW/opt/zstd/lib/pkgconfig:$BREW/opt/lz4/lib/pkgconfig:$BREW/opt/xz/lib/pkgconfig" \
+    CPPFLAGS="-I$BREW/include" LDFLAGS="-L$BREW/lib" \
+    ./configure --with-libzstd --disable-fuse --without-uuid && \
+    make -j 4; } > "$WORK/erofs-build.log" 2>&1 ) || { tail -40 "$WORK/erofs-build.log"; echo "RESULT: the EROFS reader could not be built."; exit 1; }
+  FSCK_EROFS="$WORK/erofs-utils/fsck/fsck.erofs"
+  EROFS_HELP=$("$FSCK_EROFS" --help 2>&1 || true)
+  case "$EROFS_HELP" in *zstd*) echo "EROFS reader built with Zstandard";; *) echo "$EROFS_HELP"; echo "RESULT: the EROFS reader has no Zstandard."; exit 1;; esac
+fi
+fetch_sources() {
+  # Source servers answer 5xx at times; the sources are pinned by commit.
+  for attempt in 1 2 3 4 5 6; do bash dependencies/prepare.sh --product "$1" && return 0; sleep 45; done
+  return 1
+}
+
 cd "$UPSTREAM"
 stage "test native address reservation fallback"
 python3 "$HERE/test_window_patch.py" "$UPSTREAM"
@@ -31,7 +56,8 @@ python3 "$HERE/angle_scanout.py" "$UPSTREAM"
 python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
 if [ "${FENCE_WAKE_EXPERIMENT:-0}" = 1 ]; then python3 "$HERE/fence_wakeup_patch.py" "$UPSTREAM"; fi
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
-python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
+# The fast clock path names addresses of one kernel build; measured as no gain.
+[ "$NEWUP" = 1 ] || python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 python3 "$HERE/window_patch.py" "$UPSTREAM"
 python3 "$HERE/memfit_patch.py" "$UPSTREAM"
 stage "presentation metrics and opt-in adaptive pacing"
@@ -42,7 +68,7 @@ python3 "$HERE/presentation_metrics_patch.py" "$UPSTREAM"
 python3 "$HERE/diagnostics_patch.py" "$UPSTREAM" engine
 
 stage "GPU prefix: libepoxy and virglrenderer for arm64 iOS 18 on ANGLE"
-bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
+fetch_sources apple-gpu-vulkan-experiment
 SOURCES="$UPSTREAM/external/sources"
 PREFIX="$UPSTREAM/.build/dependencies/apple-gpu-vulkan-experiment/ios-device-arm64"
 BUILD="$WORK/gpu-ios-build"
@@ -105,20 +131,58 @@ done
 ls -la "$PREFIX/lib" "$PREFIX/Frameworks"
 
 stage "network dependency for the iOS device"
-bash dependencies/prepare.sh --product ios-network
+fetch_sources ios-network
 bash dependencies/build-ios-network.sh --platform ios
 
 stage "accepted Android kernel bundle from the upstream release"
 mkdir -p .build/kernel/artifacts
+AOT_FLAGS=()
+if [ "$NEWUP" = 1 ]; then
+  # Kernel built from the engine source's own scripts at the commit under test.
+  [ -f "${KERNEL_TARBALL:-}" ] || { echo "RESULT: no kernel build was provided."; exit 1; }
+  tar -C .build/kernel/artifacts -xzf "$KERNEL_TARBALL"
+  # The release string ends in the commit of the replayed patch series; a
+  # replay elsewhere makes the same tree under another commit.
+  BUILT_RELEASE=$(cat .build/kernel/artifacts/*/kernel/kernel.release)
+  echo "kernel release built here: $BUILT_RELEASE"
+  sed -i '' "s|^UML_KERNEL_ARTIFACT_RELEASE=.*|UML_KERNEL_ARTIFACT_RELEASE='$BUILT_RELEASE'|" kernel/mainline-6.18/artifacts/accepted-android-4k.env
+  # A compiler may place the allowance rule differently; then the window
+  # keeps upstream's size and the memory fit below chooses what the device grants.
+  python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/* || echo "NOTE: address window allowance left as upstream has it"
+
+  stage "ahead-of-time code for the image the app will carry"
+  mkdir -p .build/android/releases
+  curl -fsSL --retry 3 -o "$WORK/release.tar.gz" \
+    https://github.com/imxieyi/Kernarium/releases/download/1.0b15-release/lineage24-mainline6.18-4k-20261115-los24-r28.tar.gz
+  tar -C .build/android/releases -xzf "$WORK/release.tar.gz"; rm -f "$WORK/release.tar.gz"
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
+  [ -n "${GAPPS_FIX9_IPA_URL:-}" ] || { echo "RESULT: no package address was provided."; exit 1; }
+  curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$GAPPS_FIX9_IPA_URL" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
+  base="$WORK/release-google-base"; cp -R "$STOCK" "$base"
+  for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+    unzip -p "$WORK/gapps.ipa" "Payload/Andarium.app/andarium-system/$entry" > "$base/$entry"
+  done
+  rm -f "$WORK/gapps.ipa"
+  AOT_TARGET="$WORK/release-aot"
+  python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+  rm -rf "$base"
+  python3 tools/aot/release_artifact.py build --release "$AOT_TARGET" --fsck-erofs "$FSCK_EROFS" --out "$WORK/aot-artifact" --jobs 4 \
+    || { echo "RESULT: the ahead-of-time code could not be built for this image."; exit 1; }
+  ls -la "$WORK/aot-artifact"; cat "$WORK/aot-artifact/artifact.json" | head -30
+  shasum -a 256 "$AOT_TARGET/release-manifest.json" "$AOT_TARGET/guest/system.img"
+  rm -rf "$AOT_TARGET"
+  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact")
+else
 curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
 python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
 python3 "$HERE/fastclock_patch.py" --check .build/kernel/artifacts/*/kernel/System.map
+fi
 ls .build/kernel/artifacts .build/kernel/artifacts/* | head -30
 
 stage "configure the device Android runtime"
-cmake --preset kernarium-ios-device-android
+cmake --preset kernarium-ios-device-android ${AOT_FLAGS[@]+"${AOT_FLAGS[@]}"}
 
 stage "build the device Android runtime"
 # Upstream's architecture audit forbids the Virgl-only mode on a device; this
@@ -132,7 +196,7 @@ otool -L "$BINARY"
 echo "Device runtime framework built for iOS 18 (not yet packaged into an app)."
 
 stage "compression framework"
-bash dependencies/prepare.sh --product ios-compression
+fetch_sources ios-compression
 bash dependencies/build-ios-zstd.sh
 
 stage "package frameworks for the app"
@@ -148,6 +212,13 @@ for framework in libEGL libGLESv2; do
     -output "$OUT/$framework.xcframework"
 done
 cp -R .build/dependencies/ios-zstd/LibZstd.xcframework "$OUT/"
+if [ "$NEWUP" = 1 ]; then
+  otool -L "$BINARY" | grep UmlArm64Aot || { echo "RESULT: the runtime does not link the ahead-of-time code."; exit 1; }
+  AOTFW=$(find .build/kernarium-runtime-ios-device-android-4k -maxdepth 4 -name 'UmlArm64Aot.framework' | head -1)
+  [ -d "$AOTFW" ] || { echo "RESULT: the ahead-of-time framework was not built."; exit 1; }
+  ls -la "$AOTFW"; xcrun vtool -show-build "$AOTFW/UmlArm64Aot" | grep -E 'platform|minos'
+  xcodebuild -create-xcframework -framework "$AOTFW" -output "$OUT/UmlArm64Aot.xcframework"
+fi
 du -sh "$OUT"/*
 tar -C "$UPSTREAM/.build" -czf "$WORK/engine-ios18.tar.gz" kernarium-xcframeworks
 ls -la "$WORK/engine-ios18.tar.gz"

@@ -6,6 +6,12 @@ on:
       angle_run:
         description: Run id of the ANGLE build that holds the angle-metal artifact
         required: true
+      upstream_ref:
+        description: Engine source commit
+        default: ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+      kernel_run:
+        description: Guest kernel build run (turns on the ahead-of-time build)
+        default: ""
       fence_wake:
         description: Preserve the earliest pending GPU poll deadline
         type: boolean
@@ -20,7 +26,7 @@ jobs:
   engine:
     if: github.event.repository.private == false
     runs-on: xcode-27
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: Fetch public sources
         shell: bash
@@ -32,7 +38,7 @@ jobs:
           git -C ci checkout --detach FETCH_HEAD
           git init upstream
           git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
-          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream fetch --depth=1 origin "${{ inputs.upstream_ref }}"
           git -C upstream checkout --detach FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
@@ -40,6 +46,13 @@ jobs:
           run-id: ${{ inputs.angle_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/angle-download
+      - uses: actions/download-artifact@v4
+        if: inputs.kernel_run != ''
+        with:
+          name: guest-kernel
+          run-id: ${{ inputs.kernel_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/guest-kernel
       - name: Install isolated build-only Python tools
         shell: bash
         run: |
@@ -50,6 +63,9 @@ jobs:
       - name: Staged engine build
         env:
           FENCE_WAKE_EXPERIMENT: ${{ inputs.fence_wake && '1' || '0' }}
+          GAPPS_FIX9_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
+          NEWUP: ${{ inputs.kernel_run != '' && '1' || '0' }}
+          KERNEL_TARBALL: ${{ runner.temp }}/guest-kernel/kernel.tar.gz
         shell: bash
         run: |
           set -euo pipefail

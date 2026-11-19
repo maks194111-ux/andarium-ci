@@ -99,16 +99,16 @@ mic.replace('''            const BOOL tapped = [input
                                     inputFormat.sampleRate * tapSeconds)
                          format:inputFormat
                           error:&tapError
-                          block:^(AVAudioPCMBuffer* buffer, AVAudioTime*) {''',
+                          block:^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {''',
             '''            const BOOL tapped = umlInstallTap(input, 0,
                 static_cast<AVAudioFrameCount>(
                     inputFormat.sampleRate * tapSeconds),
                 inputFormat, &tapError,
-                ^(AVAudioPCMBuffer* buffer, AVAudioTime*) {''')
-mic.replace('''                               }
-                             }];
-            if (!tapped) {''', '''                               }
-                             });
+                ^(AVAudioPCMBuffer* buffer, AVAudioTime* when) {''')
+mic.replace('''                              tap->receive(buffer, when);
+                          }];
+            if (!tapped) {''', '''                              tap->receive(buffer, when);
+                          });
             if (!tapped) {''')
 mic.wrap("        deactivationObserver_ = [NSNotificationCenter.defaultCenter\n", "#endif\n",
          "        if (@available(iOS 27.0, *)) {\n",
@@ -153,13 +153,13 @@ mic.save()
 # --- playback -----------------------------------------------------------------
 sink = Source("darwin/device/audio/apple_playback_sink.mm")
 sink.after_last_include(HELPERS)
-sink.replace('''            if (![engine_ connect:player_
-                               to:engine_.mainMixerNode
-                           format:format_
-                            error:&connectError]) {''',
-             '''            if (!umlConnect(engine_, player_, engine_.mainMixerNode,
-                            format_, &connectError)) {''')
-sink.replace("[player_ playAndReturnError:&error]", "umlPlay(player_, &error)", 3)
+sink.replace('''                if (![engine_ connect:player_
+                                   to:engine_.mainMixerNode
+                               format:format_
+                                error:&connectError]) {''',
+             '''                if (!umlConnect(engine_, player_, engine_.mainMixerNode,
+                                format_, &connectError)) {''')
+sink.replace("[player_ playAndReturnError:&error]", "umlPlay(player_, &error)", 2)
 sink.replace("[player playAndReturnError:&error]", "umlPlay(player, &error)")
 sink.wrap("        deactivationObserver_ = [[NSNotificationCenter defaultCenter]\n", "#endif\n",
           "        if (@available(iOS 27.0, *)) {\n",
