@@ -39,7 +39,11 @@ jobs:
           echo "===== STAGE: host tools (pahole, libelf)"
           sed -i '' -e 's|https://git.savannah.gnu.org/git/gnulib.git|https://github.com/coreutils/gnulib.git|' \
             -e 's|https://git.savannah.gnu.org/git/libiconv.git|https://github.com/arthenica/libiconv.git|' dependencies/manifest.tsv
-          bash dependencies/prepare.sh --product kernel-host-tools
+          # The GNU server answers 502 at times; the sources are pinned by commit.
+          for attempt in 1 2 3 4 5 6; do
+            bash dependencies/prepare.sh --product kernel-host-tools && break
+            [ "$attempt" = 6 ] && exit 1; sleep 45
+          done
           bash dependencies/prepare.sh --archive-manifest dependencies/kernel-host-tools/archives.tsv
           UML_KERNEL_HOST_TOOLS_JOBS=4 bash dependencies/build-kernel-host-tools.sh
           echo "===== STAGE: kernel source"
