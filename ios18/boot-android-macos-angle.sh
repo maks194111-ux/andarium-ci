@@ -30,9 +30,13 @@ if [ "$NEWUP" = 1 ]; then
   stage "EROFS reader with Zstandard (the ahead-of-time tool needs it)"
   for tool in zstd lz4 xz; do HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"; done
   git clone -q --depth=1 -b v1.8.6 https://github.com/erofs/erofs-utils.git "$WORK/erofs-utils"
-  ( cd "$WORK/erofs-utils" && ./autogen.sh >/dev/null 2>&1 && \
-    PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig" ./configure --with-libzstd --enable-lzma --disable-fuse --without-uuid --without-selinux >/dev/null && \
-    make -j 4 >/dev/null 2>&1 ) || { echo "RESULT: the EROFS reader could not be built."; exit 1; }
+  BREW=$(brew --prefix)
+  ( cd "$WORK/erofs-utils" && { ./autogen.sh && \
+    PKG_CONFIG_PATH="$BREW/lib/pkgconfig:$BREW/opt/zstd/lib/pkgconfig:$BREW/opt/lz4/lib/pkgconfig:$BREW/opt/xz/lib/pkgconfig" \
+    CPPFLAGS="-I$BREW/include" LDFLAGS="-L$BREW/lib" \
+    ./configure --with-libzstd --disable-fuse --without-uuid && \
+    make -j 4; } > "$WORK/erofs-build.log" 2>&1 ) || { tail -40 "$WORK/erofs-build.log"; grep -n 'error' "$WORK/erofs-utils/config.log" | tail -15; echo "RESULT: the EROFS reader could not be built."; exit 1; }
+  grep -i 'zstd\|lz4\|lzma' "$WORK/erofs-build.log" | head -8
   FSCK_EROFS="$WORK/erofs-utils/fsck/fsck.erofs"
   "$FSCK_EROFS" --help 2>&1 | grep -qi zstd || { echo "RESULT: the EROFS reader has no Zstandard."; "$FSCK_EROFS" --help 2>&1 | tail -5; exit 1; }
 fi
