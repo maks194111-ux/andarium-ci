@@ -21,6 +21,9 @@ on:
       aot_image:
         description: Image for the ahead-of-time profile (google or stock)
         default: google
+      kernel_run:
+        description: Guest kernel build run (ahead-of-time profile)
+        default: ""
       baseline_system_sha256:
         description: FIX9 system disk hash required for the AOT comparison
 permissions:
@@ -59,6 +62,13 @@ jobs:
           run-id: ${{ inputs.probe_run }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/probe
+      - uses: actions/download-artifact@v4
+        if: inputs.kernel_run != ''
+        with:
+          name: guest-kernel
+          run-id: ${{ inputs.kernel_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/guest-kernel
       - name: Install isolated build tools
         shell: bash
         run: |
@@ -80,6 +90,7 @@ jobs:
           export PROFILES="${{ inputs.profiles }}"
           export TIERS="${{ inputs.tiers }}"
           export AOT_IMAGE="${{ inputs.aot_image }}"
+          if [ -f "$RUNNER_TEMP/guest-kernel/kernel.tar.gz" ]; then export KERNEL_TARBALL="$RUNNER_TEMP/guest-kernel/kernel.tar.gz"; fi
           bash ci/ios18/boot-android-macos-angle.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/angle-package"
       - uses: actions/upload-artifact@v4
         if: always()

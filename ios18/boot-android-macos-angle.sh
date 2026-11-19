@@ -191,8 +191,14 @@ if [ "$NEWUP" = 1 ]; then
   KERNEL_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b15-release/android-6.18-arm64-4k-20261117-6.18.60-vd2.tar.gz
   RELEASE_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b15-release/lineage24-mainline6.18-4k-20261115-los24-r28.tar.gz
 fi
-curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" "$KERNEL_URL"
+if [ -n "${KERNEL_TARBALL:-}" ]; then
+  # Kernel built from the engine source's own scripts at the commit under test.
+  cp "$KERNEL_TARBALL" "$WORK/kernel.tar.gz"
+else
+  curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" "$KERNEL_URL"
+fi
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
+ls .build/kernel/artifacts
 [ "$NEWUP" = 1 ] || python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
 curl -fsSL --retry 3 -o "$WORK/release.tar.gz" "$RELEASE_URL"
 tar -C .build/android/releases -xzf "$WORK/release.tar.gz"
