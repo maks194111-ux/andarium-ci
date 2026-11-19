@@ -545,7 +545,14 @@ GUEST
 
 # Launch times of three applications: cold (process ended first), then with the process alive.
 launch_times() {
-  local name=$1 tag=$2 target
+  local name=$1 tag=$2 target round
+  if [ "${LAUNCH_ROUNDS:-1}" -gt 1 ]; then
+    note "$name: compiled as: $(guest shell "dumpsys package dexopt | grep -A3 -E '\\[(com.android.settings|com.android.vending|com.android.documentsui)\\]' | grep -oE '^ *\\[[a-z.]+\\]|status=[a-z-]+'" 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
+    for round in $(seq 1 $((LAUNCH_ROUNDS - 1))); do
+      LAUNCH_ROUNDS=1 launch_times "$name" "round $round, load $(guest shell 'cut -d" " -f1 /proc/loadavg' 2>/dev/null | tr -d '\r\n')"
+    done
+    tag="round $LAUNCH_ROUNDS, load $(guest shell 'cut -d" " -f1 /proc/loadavg' 2>/dev/null | tr -d '\r\n')"
+  fi
   for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
     guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 3
     note "$name: [$tag] cold launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
@@ -1386,7 +1393,7 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
   fi
   if [ "${PROFILES:-all}" = videoall ]; then
     # Every application and the system server compiled ahead of time, against the FIX12 image and the Google-only variant.
-    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12 LAUNCH_ROUNDS=4
     fetch_variant() { # name, address -> release directory with the FIX12 odm
       local base="$UPSTREAM/.build/android/releases/andarium-gapps-$1-experiment" entry
       rm -rf "$base" "$WORK/release-$1"; cp -R "${STOCK%/}" "$base"
