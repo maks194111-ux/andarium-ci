@@ -22,6 +22,13 @@ python3 "$HERE/lowmem_patch.py" "$UPSTREAM" app
 python3 "$HERE/report_patch.py" "$UPSTREAM"
 python3 "$HERE/diagnostics_patch.py" "$UPSTREAM" app
 python3 "$HERE/device_capabilities_patch.py" "$UPSTREAM"
+if [ "${NEWUP:-0}" = 1 ]; then
+  # The newer sources: resolution is a choice of scales, and one motion
+  # interface exists only in a newer SDK than this builder has.
+  sed -i '' 's/retina: model.retina,/retina: model.resolutionIndex == model.resolutionChoices.nativeIndex,/' Andarium/Andarium/Shared/Settings.swift
+  sed -i '' 's/if #available(iOS 27.2, \*) { return CMMotionManager.authorizationStatus }//' Andarium/Andarium/Live/MotionSensors.swift
+  if grep -c 'CMMotionManager.authorizationStatus }' Andarium/Andarium/Live/MotionSensors.swift >/dev/null; then echo "motion line not replaced"; exit 1; fi
+fi
 if [ "${FLAT_HUD:-0}" = 1 ]; then
   python3 "$HERE/flat_hud_patch.py" "$UPSTREAM"
 fi
