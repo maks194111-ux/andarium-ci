@@ -49,7 +49,7 @@ python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost|videowho) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -555,7 +555,19 @@ launch_times() {
   fi
   for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
     guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 3
-    if [ "${LAUNCH_COST:-0}" = 1 ]; then
+    if [ "${LAUNCH_COST:-0}" = 2 ]; then
+      # Which guest processes and threads take the processor during one cold launch, started once the guest is calm.
+      local calm snap="$OUT/$name/proc-$$"
+      for calm in $(seq 1 30); do
+        [ "$(guest shell 'cut -d. -f1 /proc/loadavg' 2>/dev/null | tr -d '\r\n')" -lt 2 ] 2>/dev/null && break; sleep 10
+      done
+      guest shell 'cat /proc/[0-9]*/task/[0-9]*/stat 2>/dev/null' > "$snap.before" 2>/dev/null
+      note "$name: [$tag] calm cold launch $target after $((calm * 10)) s of waiting, load $(guest shell 'cut -d" " -f1 /proc/loadavg' 2>/dev/null | tr -d '\r\n'): $(guest shell "a=\$(head -1 /proc/stat); am start -W -n $target | grep -E 'TotalTime'; echo stat-before \$a stat-after \$(head -1 /proc/stat)" 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
+      guest shell 'cat /proc/[0-9]*/task/[0-9]*/stat 2>/dev/null' > "$snap.after" 2>/dev/null
+      guest shell 'ps -A -T -o PID,TID,NAME' > "$snap.names" 2>/dev/null
+      python3 "$HERE/sf_pipeline/proc_diff.py" "$snap.before" "$snap.after" "$snap.names" 2>&1 | sed "s|^|$name [$tag] ${target%%/*}: |"
+      rm -f "$snap".*
+    elif [ "${LAUNCH_COST:-0}" = 1 ]; then
       # Where the time of one cold launch goes: whole-guest processor time (user, nice, system, idle, iowait ticks),
       # page faults of the guest, and the new process's own user/system ticks and faults.
       note "$name: [$tag] cost of cold launch $target: $(guest shell "
@@ -1422,6 +1434,14 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
       record_video video-cost-allspeed "$WORK/release-allspeed" "everything compiled ahead of time"
     fi
     echo "RESULT: launch cost comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videowho ]; then
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=10 LAUNCH_ROUNDS=3 LAUNCH_COST=2
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    record_video video-who "$QUIET" "FIX12 image"
+    echo "RESULT: launch processor breakdown finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videoall ]; then
