@@ -50,6 +50,11 @@ python3 "$HERE/test_window_patch.py" "$UPSTREAM"
 stage "retarget build system"
 python3 "$HERE/engine_build_patch.py" "$UPSTREAM"
 python3 "$HERE/angle_provider.py" "$UPSTREAM"
+if [ "$NEWUP" = 1 ]; then
+  # The newer sources call iOS 26/27 interfaces unguarded; this build is for a device on iOS 27.
+  sed -i '' 's/-Wall;-Wextra;-Werror>/-Wall;-Wextra;-Werror;-Wno-error=unguarded-availability-new>/' CMakeLists.txt
+  grep -c 'Wno-error=unguarded-availability-new' CMakeLists.txt >/dev/null || { echo "RESULT: warning policy line not found."; exit 1; }
+fi
 python3 "$HERE/engine_api_patch.py" "$UPSTREAM"
 python3 "$HERE/refresh_patch.py" "$UPSTREAM" engine
 python3 "$HERE/angle_scanout.py" "$UPSTREAM"
