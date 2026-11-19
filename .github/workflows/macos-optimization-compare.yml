@@ -15,13 +15,19 @@ on:
       tiers:
         description: Interpreter/JIT thresholds for existing optional profiles
         default: "200000000 2000000000"
+      upstream_ref:
+        description: Engine source commit
+        default: ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+      aot_image:
+        description: Image for the ahead-of-time profile (google or stock)
+        default: google
       baseline_system_sha256:
         description: FIX9 system disk hash required for the AOT comparison
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: andarium-optimization-compare-${{ inputs.profiles }}
+  group: andarium-optimization-compare-${{ inputs.profiles }}-${{ inputs.aot_image }}
   cancel-in-progress: true
 jobs:
   boot:
@@ -39,7 +45,7 @@ jobs:
           git -C ci checkout --detach FETCH_HEAD
           git init upstream
           git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
-          git -C upstream fetch --depth=1 origin ce0fa8683a5103175dfb62d58cdb5b27a6ecd5a9
+          git -C upstream fetch --depth=1 origin "${{ inputs.upstream_ref }}"
           git -C upstream checkout --detach FETCH_HEAD
       - uses: actions/download-artifact@v4
         with:
@@ -73,6 +79,7 @@ jobs:
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"
           export PROFILES="${{ inputs.profiles }}"
           export TIERS="${{ inputs.tiers }}"
+          export AOT_IMAGE="${{ inputs.aot_image }}"
           bash ci/ios18/boot-android-macos-angle.sh upstream "$RUNNER_TEMP" "$RUNNER_TEMP/angle-package"
       - uses: actions/upload-artifact@v4
         if: always()

@@ -24,6 +24,18 @@ for tool in autoconf automake libtool pkg-config ninja cmake gptfdisk groff; do
 done
 command -v adb >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask android-platform-tools
 adb version | head -1; command -v sgdisk
+# The newer engine tree (ahead-of-time code for the system libraries).
+NEWUP=0; case "${PROFILES:-all}" in aotnew) NEWUP=1;; esac
+if [ "$NEWUP" = 1 ]; then
+  stage "EROFS reader with Zstandard (the ahead-of-time tool needs it)"
+  for tool in zstd lz4 xz; do HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool"; done
+  git clone -q --depth=1 -b v1.8.6 https://github.com/erofs/erofs-utils.git "$WORK/erofs-utils"
+  ( cd "$WORK/erofs-utils" && ./autogen.sh >/dev/null 2>&1 && \
+    PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig" ./configure --with-libzstd --enable-lzma --disable-fuse --without-uuid --without-selinux >/dev/null && \
+    make -j 4 >/dev/null 2>&1 ) || { echo "RESULT: the EROFS reader could not be built."; exit 1; }
+  FSCK_EROFS="$WORK/erofs-utils/fsck/fsck.erofs"
+  "$FSCK_EROFS" --help 2>&1 | grep -qi zstd || { echo "RESULT: the EROFS reader has no Zstandard."; "$FSCK_EROFS" --help 2>&1 | tail -5; exit 1; }
+fi
 
 cd "$UPSTREAM"
 stage "retarget build system (macOS product, ANGLE host GL)"
@@ -44,12 +56,14 @@ fi
 if [ "${PROFILES:-all}" = async ]; then
   python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"
 fi
+if [ "$NEWUP" != 1 ]; then
 python3 "$HERE/qos_patch.py" "$UPSTREAM" engine
 python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
+fi
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost|videowho|videonative) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in aotnew|video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost|videowho|videonative) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -65,7 +79,8 @@ text = path.read_text()
 old = '        f"--execution-engine={options.engine}",\n'
 if text.count(old) != 1:
     raise SystemExit("launcher engine argument not found")
-path.write_text(text.replace(old, old + '        *([f"--jit-tier={os.environ[\'UML_JIT_TIER\']}"] if os.environ.get("UML_JIT_TIER") else []),\n'))
+path.write_text(text.replace(old, old + '        *([f"--jit-tier={os.environ[\'UML_JIT_TIER\']}"] if os.environ.get("UML_JIT_TIER") else []),\n'
+    '        *([f"--aot={os.environ[\'UML_AOT_SWITCH\']}"] if os.environ.get("UML_AOT_SWITCH") else []),\n'))
 PY3
 # The CI Mac is a virtual machine without a hardware video encoder, and the
 # launcher treats the missing encoder as fatal. The test boots without that
@@ -163,12 +178,16 @@ bash dependencies/build.sh
 
 stage "accepted Android kernel bundle and release from upstream"
 mkdir -p .build/kernel/artifacts .build/android/releases
-curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
-  https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
+KERNEL_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz
+RELEASE_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/lineage24-mainline6.18-4k-20261110-los24-r22.tar.gz
+if [ "$NEWUP" = 1 ]; then
+  KERNEL_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b15-release/android-6.18-arm64-4k-20261117-6.18.60-vd2.tar.gz
+  RELEASE_URL=https://github.com/imxieyi/Kernarium/releases/download/1.0b15-release/lineage24-mainline6.18-4k-20261115-los24-r28.tar.gz
+fi
+curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" "$KERNEL_URL"
 tar -C .build/kernel/artifacts -xzf "$WORK/kernel.tar.gz"
-python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
-curl -fsSL --retry 3 -o "$WORK/release.tar.gz" \
-  https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/lineage24-mainline6.18-4k-20261110-los24-r22.tar.gz
+[ "$NEWUP" = 1 ] || python3 "$HERE/kernel_window_patch.py" "$UPSTREAM" .build/kernel/artifacts/*
+curl -fsSL --retry 3 -o "$WORK/release.tar.gz" "$RELEASE_URL"
 tar -C .build/android/releases -xzf "$WORK/release.tar.gz"
 rm -f "$WORK/release.tar.gz"
 ls -la .build/android/releases/*
@@ -177,7 +196,29 @@ stage "configure and build the macOS Android executable"
 # Upstream's closure check admits only its own Mesa frameworks; this test binary
 # links ANGLE's instead, so the check is replaced and that is stated here.
 printf '#!/bin/sh\necho "runtime closure check not run: ANGLE test binary"\n' > dependencies/verify-runtime-dependencies.sh
-cmake --preset macos-android17
+AOT_FLAGS=()
+if [ "$NEWUP" = 1 ]; then
+  stage "ahead-of-time code for the image under test"
+  STOCK=$(ls -d "$UPSTREAM"/.build/android/releases/*/ | head -1); STOCK=${STOCK%/}
+  AOT_TARGET="$STOCK"
+  if [ "${AOT_IMAGE:-google}" = google ]; then
+    [ -n "${GAPPS_FIX9_IPA_URL:-}" ] || { echo "RESULT: no package address was provided."; exit 1; }
+    curl -fsSL --retry 3 -o "$WORK/gapps.ipa" "$GAPPS_FIX9_IPA_URL" 2>/dev/null || { echo "RESULT: the package could not be fetched."; exit 1; }
+    base="$WORK/release-google-base"; cp -R "$STOCK" "$base"
+    for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+      unzip -p "$WORK/gapps.ipa" "Payload/Andarium.app/andarium-system/$entry" > "$base/$entry"
+    done
+    rm -f "$WORK/gapps.ipa"
+    AOT_TARGET="$WORK/release-aotnew"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    rm -rf "$base"
+  fi
+  python3 tools/aot/release_artifact.py build --release "$AOT_TARGET" --fsck-erofs "$FSCK_EROFS" --out "$WORK/aot-artifact" --jobs 4 \
+    || { echo "RESULT: the ahead-of-time code could not be built for this image."; exit 1; }
+  ls -la "$WORK/aot-artifact"
+  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact")
+fi
+cmake --preset macos-android17 ${AOT_FLAGS[@]+"${AOT_FLAGS[@]}"}
 cmake --build .build/presets/macos-android17 --target uml-darwin-android17 -j 4 -- -k 0
 EMULATOR=$(find .build/presets/macos-android17 -name uml-darwin-android17 -type f | head -1)
 otool -L "$EMULATOR" | grep -E 'EGL|GLES' || true
@@ -1270,6 +1311,17 @@ if [ "${PROFILES:-all}" = hostcpu ]; then
   hostcpu_run host120 "$TUNED" 120
   hostcpu_run host60 "$TUNED" 60
   echo "RESULT: host thread profile finished (status $RESULT)."
+  exit "$RESULT"
+fi
+if [ "${PROFILES:-all}" = aotnew ]; then
+  # Same image, same engine build, the ahead-of-time code on and off.
+  command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
+  python3 -m pip install --quiet --target "$WORK/video-tools" lz4==4.4.4 || true
+  export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=8 LAUNCH_ROUNDS=4 LAUNCH_COST=2
+  UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
+  if [ "$RESULT" != 0 ]; then echo "RESULT: the image did not start with the ahead-of-time code."; fi
+  UML_AOT_SWITCH=off record_video aot-off "$AOT_TARGET" "ahead-of-time code off"
+  echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
   exit "$RESULT"
 fi
 if [ "${PROFILES:-all}" = pipeline ]; then
