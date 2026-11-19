@@ -49,7 +49,7 @@ python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -555,7 +555,19 @@ launch_times() {
   fi
   for target in "com.android.settings/.Settings" "com.android.vending/.AssetBrowserActivity" "com.android.documentsui/.files.FilesActivity"; do
     guest shell "am force-stop ${target%%/*}" >/dev/null 2>&1; sleep 3
+    if [ "${LAUNCH_COST:-0}" = 1 ]; then
+      # Where the time of one cold launch goes: whole-guest processor time (user, nice, system, idle, iowait ticks),
+      # page faults of the guest, and the new process's own user/system ticks and faults.
+      note "$name: [$tag] cost of cold launch $target: $(guest shell "
+        a=\$(head -1 /proc/stat); f=\$(grep -E '^(pgfault|pgmajfault) ' /proc/vmstat | tr '\n' ' ')
+        am start -W -n $target | grep -E 'TotalTime'
+        b=\$(head -1 /proc/stat); g=\$(grep -E '^(pgfault|pgmajfault) ' /proc/vmstat | tr '\n' ' ')
+        echo \"stat-before \$a stat-after \$b faults-before \$f faults-after \$g\"
+        p=\$(pidof ${target%%/*} | cut -d' ' -f1); echo \"process minflt/majflt/utime/stime: \$(cut -d' ' -f10,12,14,15 /proc/\$p/stat) threads \$(ls /proc/\$p/task | wc -l)\"
+        " 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
+    else
     note "$name: [$tag] cold launch $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
+    fi
     guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 4
     note "$name: [$tag] launch with the process alive $target: $(guest shell "am start -W -n $target" 2>&1 | grep -aE 'TotalTime|WaitTime|Error' | tr -d '\r' | tr '\n' ' ')"
     guest shell 'input keyevent KEYCODE_HOME' >/dev/null 2>&1; sleep 4
@@ -1389,6 +1401,27 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     VIDEO_CPUS=4 record_video video-4cpu "$QUIET" "FIX12 image, 4 guest processors"
     VIDEO_CPUS=3 record_video video-3cpu "$QUIET" "FIX12 image, 3 guest processors"
     echo "RESULT: guest processor count comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videocost ]; then
+    # What a cold launch costs the guest: kernel against user time and page faults, FIX12 image and the fully compiled one.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=10 LAUNCH_ROUNDS=3 LAUNCH_COST=1
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    record_video video-cost-fix12 "$QUIET" "FIX12 image"
+    if [ -n "${GAPPS_ALLSPEED_RELEASE_URL:-}" ]; then
+      base="$UPSTREAM/.build/android/releases/andarium-gapps-allspeed-experiment"
+      cp -R "${STOCK%/}" "$base"
+      curl -fsSL --retry 3 -o "$WORK/allspeed.zip" "$GAPPS_ALLSPEED_RELEASE_URL" 2>/dev/null || { echo "RESULT: private release fetch failed"; exit 1; }
+      for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+        unzip -p "$WORK/allspeed.zip" "$entry" > "$base/$entry"
+      done
+      rm -f "$WORK/allspeed.zip"
+      python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$WORK/release-allspeed" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+      rm -rf "$base"
+      record_video video-cost-allspeed "$WORK/release-allspeed" "everything compiled ahead of time"
+    fi
+    echo "RESULT: launch cost comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videoall ]; then
