@@ -26,7 +26,7 @@ jobs:
           git -C upstream fetch --depth=1 origin "${{ inputs.upstream_ref }}"
           git -C upstream checkout --detach FETCH_HEAD
           git config --global user.name kernarium; git config --global user.email kernarium@users.noreply.github.com
-          for tool in make llvm lld autoconf automake libtool pkg-config cmake ninja gawk gnu-sed xz zstd; do
+          for tool in meson make llvm lld autoconf automake libtool pkg-config cmake ninja gawk gnu-sed xz zstd; do
             HOMEBREW_NO_AUTO_UPDATE=1 brew list "$tool" >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install "$tool" >/dev/null
           done
           BREW=$(brew --prefix)
