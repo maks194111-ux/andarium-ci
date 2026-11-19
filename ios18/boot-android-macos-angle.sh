@@ -49,7 +49,7 @@ python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost|videowho) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall|videocost|videowho|videonative) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -655,7 +655,7 @@ record_video() {
   local started=$(date +%s) booted=0 i
   UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
     --display offscreen --offscreen-mirror "720@$hertz" --width 2048 --height 2732 --dpi 264 --audio-output null \
-    --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine gadgets --adb-timeout 1800 --boot-timeout 3000 \
+    --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine "${VIDEO_ENGINE:-gadgets}" --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   for i in $(seq 1 120); do
@@ -1442,6 +1442,17 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     record_video video-who "$QUIET" "FIX12 image"
     echo "RESULT: launch processor breakdown finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videonative ]; then
+    # Upper bound for build-time translation: the same launches when guest code runs as native blocks (the Mac-only
+    # compiler), repeated so that later rounds reuse translations, against the interpreter in the same job.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=10 LAUNCH_ROUNDS=4 LAUNCH_COST=2
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    VIDEO_ENGINE=jit record_video video-native "$QUIET" "FIX12 image, native blocks"
+    record_video video-interpreter "$QUIET" "FIX12 image, interpreter"
+    echo "RESULT: native block comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videoall ]; then
