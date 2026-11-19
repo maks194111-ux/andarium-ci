@@ -49,7 +49,7 @@ python3 "$HERE/tier_patch.py" "$UPSTREAM"
 python3 "$HERE/fastclock_patch.py" "$UPSTREAM"
 case "${PROFILES:-all}" in videocache|videoipad) python3 "$HERE/cachebudget_patch.py" "$UPSTREAM";; esac
 # Every 120 Hz recording profile shares the video120 setup.
-V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus) V120=1;; esac
+V120=0; case "${PROFILES:-all}" in video120|videomem|videoaot|videoipad|videocache|videolaunch|videocpus|videoall) V120=1;; esac
 if [ "${PROFILES:-all}" = video ] || [ "$V120" = 1 ]; then python3 "$HERE/frame_record_patch.py" "$UPSTREAM"; fi
 if [ "$V120" = 1 ]; then python3 "$HERE/async_scanout_patch.py" "$UPSTREAM"; fi
 if [ "${PROFILES:-all}" = mapping ]; then
@@ -1382,6 +1382,35 @@ if [ "${PROFILES:-all}" = gapps ] || [ "${PROFILES:-all}" = mapping ] || [ "${PR
     VIDEO_CPUS=4 record_video video-4cpu "$QUIET" "FIX12 image, 4 guest processors"
     VIDEO_CPUS=3 record_video video-3cpu "$QUIET" "FIX12 image, 3 guest processors"
     echo "RESULT: guest processor count comparison finished (status $RESULT)."
+    exit "$RESULT"
+  fi
+  if [ "${PROFILES:-all}" = videoall ]; then
+    # Every application and the system server compiled ahead of time, against the FIX12 image and the Google-only variant.
+    export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=12
+    fetch_variant() { # name, address -> release directory with the FIX12 odm
+      local base="$UPSTREAM/.build/android/releases/andarium-gapps-$1-experiment" entry
+      rm -rf "$base" "$WORK/release-$1"; cp -R "${STOCK%/}" "$base"
+      curl -fsSL --retry 3 -o "$WORK/$1.zip" "$2" 2>/dev/null || { echo "RESULT: private $1 release fetch failed"; exit 1; }
+      for entry in release-manifest.json boot/kernel-command-line.txt guest/partition-layout.json guest/system.img; do
+        unzip -p "$WORK/$1.zip" "$entry" > "$base/$entry"
+      done
+      rm -f "$WORK/$1.zip"
+      python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$WORK/release-$1" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+      rm -rf "$base"
+    }
+    [ -n "${GAPPS_ALLSPEED_RELEASE_URL:-}" ] || { echo "RESULT: no private all-speed release address"; exit 1; }
+    QUIET="$WORK/release-bgquiet"
+    python3 "$HERE/sf_pipeline/splice_odm.py" "${GAPPS_RELEASE%/}" "$QUIET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    fetch_variant allspeed "$GAPPS_ALLSPEED_RELEASE_URL"
+    record_video video-allspeed-1 "$WORK/release-allspeed" "everything compiled ahead of time"
+    record_video video-quiet "$QUIET" "FIX12 image"
+    record_video video-allspeed-2 "$WORK/release-allspeed" "everything compiled ahead of time"
+    rm -rf "$WORK/release-allspeed"
+    if [ -n "${GAPPS_AOT_RELEASE_URL:-}" ]; then
+      fetch_variant aot "$GAPPS_AOT_RELEASE_URL"
+      record_video video-aot "$WORK/release-aot" "Google applications compiled ahead of time"
+    fi
+    echo "RESULT: all-speed comparison finished (status $RESULT)."
     exit "$RESULT"
   fi
   if [ "${PROFILES:-all}" = videolaunch ]; then
