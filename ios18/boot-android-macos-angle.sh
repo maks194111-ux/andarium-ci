@@ -112,7 +112,8 @@ else
 fi
 
 stage "GPU prefix for macOS: libepoxy and virglrenderer on ANGLE"
-bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment
+# Source servers answer 5xx at times; the sources are pinned by commit.
+for attempt in 1 2 3 4 5 6; do bash dependencies/prepare.sh --product apple-gpu-vulkan-experiment && break; [ "$attempt" = 6 ] && exit 1; sleep 45; done
 SOURCES="$UPSTREAM/external/sources"
 PREFIX="$UPSTREAM/.build/dependencies/apple-gpu-vulkan-experiment/macos-arm64"
 BUILD="$WORK/gpu-macos-build"
@@ -180,7 +181,8 @@ stage "macOS host libraries"
 # gives the same content or the checkout fails.
 sed -i '' -e 's|https://git.savannah.gnu.org/git/gnulib.git|https://github.com/coreutils/gnulib.git|' \
   -e 's|https://git.savannah.gnu.org/git/libiconv.git|https://github.com/arthenica/libiconv.git|' dependencies/manifest.tsv
-bash dependencies/prepare.sh --product macos
+# Source servers answer 5xx at times; the sources are pinned by commit.
+for attempt in 1 2 3 4 5 6; do bash dependencies/prepare.sh --product macos && break; [ "$attempt" = 6 ] && exit 1; sleep 45; done
 bash dependencies/build.sh
 
 stage "accepted Android kernel bundle and release from upstream"
