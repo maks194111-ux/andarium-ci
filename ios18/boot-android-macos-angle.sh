@@ -39,9 +39,9 @@ if [ "$NEWUP" = 1 ]; then
     CPPFLAGS="-I$BREW/include" LDFLAGS="-L$BREW/lib" \
     ./configure --with-libzstd --disable-fuse --without-uuid && \
     make -j 4; } > "$WORK/erofs-build.log" 2>&1 ) || { tail -40 "$WORK/erofs-build.log"; grep -n 'error' "$WORK/erofs-utils/config.log" | tail -15; echo "RESULT: the EROFS reader could not be built."; exit 1; }
-  grep -i 'zstd\|lz4\|lzma' "$WORK/erofs-build.log" | head -8
   FSCK_EROFS="$WORK/erofs-utils/fsck/fsck.erofs"
-  "$FSCK_EROFS" --help 2>&1 | grep -qi zstd || { echo "RESULT: the EROFS reader has no Zstandard."; "$FSCK_EROFS" --help 2>&1 | tail -5; exit 1; }
+  EROFS_HELP=$("$FSCK_EROFS" --help 2>&1 || true)
+  case "$EROFS_HELP" in *zstd*) echo "EROFS reader built with Zstandard";; *) echo "$EROFS_HELP"; echo "RESULT: the EROFS reader has no Zstandard."; exit 1;; esac
 fi
 
 cd "$UPSTREAM"
