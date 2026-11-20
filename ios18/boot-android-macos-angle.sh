@@ -29,6 +29,11 @@ AOT_DIAG=0; if [ "${PROFILES:-all}" = aotdiag ]; then AOT_DIAG=1; PROFILES=aotne
 # Live session: the same build as aotnew, then commands arrive from the live-cmd
 # branch and screenshots go back to live-out. A game package is fetched meanwhile.
 LIVE=0; LIVE_NAME=${PROFILES:-all}; if [ "$LIVE_NAME" = live ] || [ "$LIVE_NAME" = liveoff ] || [ "$LIVE_NAME" = livephone ]; then LIVE=1; PROFILES=aotnew
+  if [ "$LIVE_NAME" = livephone ]; then
+    # The phone's /proc/cpuinfo and direct MIDR_EL1 reads must report one CPU.
+    # This changes identification only, not instruction execution or features.
+    python3 "$HERE/sf_pipeline/phone_cpu_identity.py" "$UPSTREAM"
+  fi
   if [ -n "${LIVE_PACKAGE_URL:-}" ]; then
     ( curl -fsSL --retry 5 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36" \
         -o "$WORK/live-package.part" "$LIVE_PACKAGE_URL" && mv "$WORK/live-package.part" "$WORK/live-package.zip" \

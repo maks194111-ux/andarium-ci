@@ -21,6 +21,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git init ci
+          git -C ci remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C ci fetch --depth=1 origin "$GITHUB_SHA"
+          git -C ci checkout --detach FETCH_HEAD
           git init upstream
           git -C upstream remote add origin https://github.com/imxieyi/Kernarium.git
           git -C upstream fetch --depth=1 origin "${{ inputs.upstream_ref }}"
@@ -35,6 +39,7 @@ jobs:
           hdiutil create -size 30g -fs "Case-sensitive APFS" -volname kbuild "$RUNNER_TEMP/kbuild.sparseimage" -type SPARSE >/dev/null
           hdiutil attach "$RUNNER_TEMP/kbuild.sparseimage" >/dev/null
           cd upstream
+          python3 ../ci/ios18/sf_pipeline/phone_cpu_identity.py . --kernel-only
           echo "UML_KERNEL_SOURCE_DIR=/Volumes/kbuild/linux" > kernel/mainline-6.18/source-location.conf
           echo "===== STAGE: host tools (pahole, libelf)"
           sed -i '' -e 's|https://git.savannah.gnu.org/git/gnulib.git|https://github.com/coreutils/gnulib.git|' \
