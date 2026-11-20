@@ -25,6 +25,7 @@ done
 command -v adb >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask android-platform-tools
 adb version | head -1; command -v sgdisk
 # The newer engine tree (ahead-of-time code for the system libraries).
+AOT_DIAG=0; if [ "${PROFILES:-all}" = aotdiag ]; then AOT_DIAG=1; PROFILES=aotnew; fi
 NEWUP=0; case "${PROFILES:-all}" in aotnew) NEWUP=1;; esac
 if [ "$NEWUP" = 1 ]; then
   stage "EROFS reader with Zstandard (the ahead-of-time tool needs it)"
@@ -241,6 +242,8 @@ if [ "$NEWUP" = 1 ]; then
     || { echo "RESULT: the ahead-of-time code could not be built for this image."; exit 1; }
   ls -la "$WORK/aot-artifact"
   AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact")
+  # The counting build generates its own code from the image; it is for the report, not for timing.
+  if [ "${AOT_DIAG:-0}" = 1 ]; then AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_IMAGE=$AOT_TARGET" "-DUML_AOT_FSCK_EROFS=$FSCK_EROFS" -DUML_AOT_DIAGNOSTICS=ON); fi
 fi
 cmake --preset macos-android17 ${AOT_FLAGS[@]+"${AOT_FLAGS[@]}"}
 cmake --build .build/presets/macos-android17 --target uml-darwin-android17 -j 4 -- -k 0
@@ -1342,6 +1345,7 @@ if [ "${PROFILES:-all}" = aotnew ]; then
   command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
   python3 -m pip install --quiet --target "$WORK/video-tools" lz4==4.4.4 || true
   export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=8 LAUNCH_ROUNDS=4 LAUNCH_COST=2
+  if [ "$AOT_DIAG" = 1 ]; then export LAUNCH_ROUNDS=2; fi
   DARWIN_UML_AOT_REPORT="$WORK/aot-report.txt" UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
   echo "--- ahead-of-time report (was the code entered, what refused)"
   if [ -f "$WORK/aot-report.txt" ]; then
@@ -1351,6 +1355,7 @@ if [ "${PROFILES:-all}" = aotnew ]; then
     sed -n 1,25p "$WORK/aot-lib.txt"
   else echo "no report was written"; fi
   if [ "$RESULT" != 0 ]; then echo "RESULT: the image did not start with the ahead-of-time code."; fi
+  if [ "$AOT_DIAG" = 1 ]; then echo "RESULT: ahead-of-time report finished (status $RESULT)."; exit "$RESULT"; fi
   UML_AOT_SWITCH=off record_video aot-off "$AOT_TARGET" "ahead-of-time code off"
   echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
   exit "$RESULT"
