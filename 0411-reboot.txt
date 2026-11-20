@@ -1,0 +1,6 @@
+reboot: up=1
+[   74.434074][  T208] servicemanager: Caller(pid=2105,uid=1000,sid=u:r:system_app:s0) Could not find vendor.lineage.touch.IKeyDisabler/default in the VINTF manifest. No alternative instances declared
+[   74.437869][  T208] servicemanager: Caller(pid=2105,uid=1000,sid=u:r:system_app:s0) Could not find vendor.lineage.touch.IKeySwapper/default in the VINTF manifest. No alternative instances declared 
+ANGLE scanout stats: 5.9 s, 12 frames (2.0 per second), copy 0.19 ms average, 0.42 ms worst, longest gap 1568 ms
+[   78.599440][  T690] binder: 586:690 ioctl 400c620e 7f602614786c returned -11
+[   79.214937][  T243] android.hardware.gatekeeper-service.nonsecure: deleteAllUsers is unimplemented
