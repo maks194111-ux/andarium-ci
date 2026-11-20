@@ -1,0 +1,4 @@
+androidboot.hardware=andarium
+androidboot.verifiedbootstate=green
+device_state=locked
+flash.locked=1
