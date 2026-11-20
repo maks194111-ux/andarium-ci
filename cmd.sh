@@ -1,8 +1,9 @@
-# 0103
-guest shell 'am force-stop com.supercell.brawlstars; input keyevent KEYCODE_HOME'
-curl -fsSL --retry 3 -o "$WORK/stk.apk" https://github.com/supertuxkart/stk-code/releases/download/1.5/SuperTuxKart-1.5.apk
-adb -s "$SERIAL" install "$WORK/stk.apk" 2>&1 | tail -1; rm -f "$WORK/stk.apk"
-guest shell 'monkey -p org.supertuxkart.stk -c android.intent.category.LAUNCHER 1' >/dev/null 2>&1
-sleep 50
-guest shell 'input tap 698 1046'; sleep 8
-guest shell 'input keyevent KEYCODE_DPAD_RIGHT; sleep 1; input keyevent KEYCODE_DPAD_RIGHT'; sleep 4
+# 0104
+guest shell 'input keyevent KEYCODE_DPAD_DOWN; sleep 1; input keyevent KEYCODE_DPAD_DOWN; sleep 1; input keyevent KEYCODE_ENTER; sleep 6; input keyevent KEYCODE_ENTER; sleep 4; input keyevent KEYCODE_DPAD_RIGHT; sleep 1'
+rec on; mark "SuperTuxKart: race loads"
+guest shell 'input keyevent KEYCODE_ENTER'; sleep 35
+mark "SuperTuxKart: driving"
+guest shell 'for n in 1 2 3 4; do input swipe 395 1024 395 1024 5000; input swipe 395 1024 250 1150 2500; input swipe 395 1024 395 1024 3000; input swipe 395 1024 540 1150 2500; done'
+mark "SuperTuxKart: driving ends"; rec off
+ls -la "$WORK"/live.frames; df -h "$WORK" | tail -1
+guest shell 'dumpsys gfxinfo org.supertuxkart.stk | grep -E "Total frames|Janky|50th|90th" | head; dumpsys SurfaceFlinger --timestats -dump 2>/dev/null | grep -iE "averageFPS|totalFrames" | head -6; cat /proc/loadavg'
