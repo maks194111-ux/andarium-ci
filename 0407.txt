@@ -1,0 +1,16 @@
+[    0.663678][    T1] init: Skipped setting INIT_AVB_VERSION (not vbmeta compatible)
+[    0.901240][    T1] init: Couldn't load property file '/system/build.prop': open() failed: No such file or directory
+[    1.005908][    T1] init: Unable to read config file '/init.recovery.andarium.rc': open() failed: No such file or directory
+[    1.012628][    T1] init: Unable to read config file '/system_ext/etc/init': open() failed: No such file or directory
+[    1.013254][    T1] init: Unable to read config file '/vendor/etc/init': open() failed: No such file or directory
+[    1.019261][    T1] init: Unable to read config file '/odm/etc/init': open() failed: No such file or directory
+[    1.020488][    T1] init: Unable to read config file '/product/etc/init': open() failed: No such file or directory
+[    1.442603][    T1] init: Command 'symlink /system/bin /bin' action=init (/system/etc/init/hw/init.rc:22) took 0ms and failed: symlink() failed: File exists
+[    1.442892][    T1] init: Command 'symlink /system/etc /etc' action=init (/system/etc/init/hw/init.rc:23) took 0ms and failed: symlink() failed: File exists
+[    1.443114][    T1] init: Command 'rmdir /sbin' action=init (/system/etc/init/hw/init.rc:24) took 0ms and failed: rmdir() failed: No such file or directory
+[    1.478875][    T1] init: Command 'mount functionfs adb /dev/usb-ffs/adb uid=2000,gid=2000' action=fs (/system/etc/init/hw/init.rc:158) took 0ms and failed: mount() failed: No such device
+[    1.480067][    T1] init: Command 'mount functionfs fastboot /dev/usb-ffs/fastboot rmode=0770,fmode=0660,uid=1000,gid=1000' action=fs (/system/etc/init/hw/init.rc:160) took 0ms and failed: mount() failed: No such devi
+androidboot.hardware=andarium
+androidboot.verifiedbootstate=green
+device_state=unlocked
+flash.locked=1
