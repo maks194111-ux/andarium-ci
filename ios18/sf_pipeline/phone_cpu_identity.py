@@ -51,6 +51,14 @@ def kernel_identity(root):
         "+#define UML_ARM64_MIDR 0x000f0000U",
         "+#define UML_ARM64_MIDR 0x410fd0b4U",
     )
+    # prepare-source.sh replays every patch and verifies the resulting Linux
+    # tree. This is the tree CI computed from the patched series on the pinned
+    # upstream base; change the expected value rather than bypass that check.
+    replace_once(
+        root / "kernel/mainline-6.18/patches/metadata.env",
+        "UML_KERNEL_FINAL_TREE='ee913342fecf9f7f9836b616f5c605a036da0098'",
+        "UML_KERNEL_FINAL_TREE='7add27eb1264439c1a41c2a10b946c128de3c69e'",
+    )
 
 
 def engine_identity(root):
