@@ -53,10 +53,14 @@ def extract_tar(image, root, archive, fsck):
     run(["sudo", "-n", fsck, f"--extract={root}", "--xattrs", "--preserve", image])
     version = subprocess.run(["tar", "--version"], capture_output=True, text=True).stdout
     gnu = "GNU tar" in version
-    command = ["sudo", "-n", "tar"]
     if gnu:
+        command = ["sudo", "-n", "tar"]
         # --xattrs includes the SELinux label; --selinux is not needed for that.
         command += ["--xattrs", "--xattrs-include=*", "--acls"]
+    else:
+        # macOS otherwise adds a phantom ._file beside every file with xattrs.
+        # Its pax LIBARCHIVE.xattr keys retain the SELinux labels without them.
+        command = ["sudo", "-n", "env", "COPYFILE_DISABLE=1", "tar"]
     command += ["-cf", archive, "-C", root, "."]
     run(command)
     run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", archive])
