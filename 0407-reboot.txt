@@ -1,0 +1,6 @@
+reboot: up=1
+[   69.026848][  T215] servicemanager: Caller(pid=2001,uid=1000,sid=u:r:system_server:s0) Found android.hardware.media.c2.IComponentStore/default in device VINTF manifest.
+[   69.032779][  T215] servicemanager: Caller(pid=2001,uid=1000,sid=u:r:system_server:s0) Found android.hardware.media.c2.IComponentStore/default in device VINTF manifest.
+[   69.036849][  T215] servicemanager: Caller(pid=2001,uid=1000,sid=u:r:system_server:s0) Found android.hardware.media.c2.IComponentStore/software in framework VINTF manifest.
+[   69.273309][  T215] servicemanager: Caller(pid=2001,uid=1000,sid=u:r:system_server:s0) Found android.hardware.media.c2.IComponentStore/default in device VINTF manifest.
+[   69.282153][  T215] servicemanager: Caller(pid=2001,uid=1000,sid=u:r:system_server:s0) Found android.hardware.media.c2.IComponentStore/default in device VINTF manifest.
