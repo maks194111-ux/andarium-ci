@@ -1,4 +1,6 @@
-# 0410
+# 0411
 #noshot
-guest logcat -d > "$WORK/lc.txt" 2>&1
-grep -a -E "FATAL EXCEPTION|Fatal signal|System zygote died|Abort message|E AndroidRuntime|\*\*\* |Exit zygote|System server|SystemServer: |Shutting down VM|Watchdog" "$WORK/lc.txt" | sed 's/^[0-9-]* //' | cut -c1-300 | tail -30
+#reboot reset
+f=$(ls -d "$WORK"/release-aotnew)/boot/kernel-command-line.txt
+sed -i '' 's/androidboot.vbmeta.device_state=unlocked/androidboot.vbmeta.device_state=locked/' "$f"
+grep -o "androidboot.verifiedbootstate=[a-z]*\|device_state=[a-z]*\|flash.locked=[0-9]\|androidboot.hardware=[a-z_]*" "$f"
