@@ -1342,7 +1342,14 @@ if [ "${PROFILES:-all}" = aotnew ]; then
   command -v ffmpeg >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg >/dev/null 2>&1
   python3 -m pip install --quiet --target "$WORK/video-tools" lz4==4.4.4 || true
   export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=8 LAUNCH_ROUNDS=4 LAUNCH_COST=2
-  UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
+  DARWIN_UML_AOT_REPORT="$WORK/aot-report.txt" UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
+  echo "--- ahead-of-time report (was the code entered, what refused)"
+  if [ -f "$WORK/aot-report.txt" ]; then
+    grep -vE '^(step|library) ' "$WORK/aot-report.txt" | cut -c1-600 || true
+    echo "libraries entered: $(grep -cE '^library [0-9]+ enters [1-9]' "$WORK/aot-report.txt" || true) of $(grep -cE '^library ' "$WORK/aot-report.txt" || true)"
+    grep -E '^library ' "$WORK/aot-report.txt" | sort -k4,4nr | cut -c1-200 > "$WORK/aot-lib.txt" || true
+    sed -n 1,25p "$WORK/aot-lib.txt"
+  else echo "no report was written"; fi
   if [ "$RESULT" != 0 ]; then echo "RESULT: the image did not start with the ahead-of-time code."; fi
   UML_AOT_SWITCH=off record_video aot-off "$AOT_TARGET" "ahead-of-time code off"
   echo "RESULT: ahead-of-time comparison finished (status $RESULT)."
