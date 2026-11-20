@@ -1,5 +1,3 @@
-# 0004
+# 0005
 #noshot
-cd "$WORK/live-package"
-( adb -s "$SERIAL" install-multiple com.supercell.brawlstars.apk config.arm64_v8a.apk config.en.apk config.ru.apk config.xxhdpi.apk install_time_asset_pack.apk > "$WORK/install.log" 2>&1; date >> "$WORK/install.log" ) &
-sleep 5; date; cat "$WORK/install.log"
+for i in $(seq 1 50); do grep -q 20 "$WORK/install.log" && break; sleep 5; done; cat "$WORK/install.log"; guest shell 'df -h /data | tail -1; pm list packages | grep supercell; cat /proc/loadavg'
