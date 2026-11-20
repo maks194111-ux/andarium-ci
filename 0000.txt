@@ -1,0 +1,14 @@
+Fri Nov 20 08:32:55 UTC 2026
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/ubdb3  23G 105M   23G   1% /storage/emulated/0/Android/obb
+38.24 30.46 14.43 33/1956 4147
+-rw-r--r--  1 runner  staff           0 Nov 20 08:05 /Users/runner/work/_temp/live-package.log
+-rw-r--r--  1 runner  staff           0 Nov 20 08:06 /Users/runner/work/_temp/live-package.ready
+-rw-r--r--  1 runner  staff  2015333875 Nov 20 08:06 /Users/runner/work/_temp/live-package.zip
+
+/Users/runner/work/_temp/live-package:
+total 3962208
+drwxr-xr-x  25 runner  staff         800 Nov 20 08:06 .
+drwxr-xr-x  28 runner  staff         896 Nov 20 08:32 ..
+-rw-r--r--   1 runner  staff    58209837 Jan 10  1980 com.supercell.brawlstars.apk
+-rw-r--r--   1 runner  staff       69842 Jan 10  1980 config.ar.apk
