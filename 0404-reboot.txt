@@ -1,0 +1,6 @@
+reboot: up=1
+[   87.356156][  T215] servicemanager: Caller(pid=1909,uid=1041,sid=u:r:audioserver:s0) Found android.hardware.audio.effect.IFactory/default in device VINTF manifest.
+[   87.362450][  T215] servicemanager: Caller(pid=1909,uid=1041,sid=u:r:audioserver:s0) Found android.hardware.audio.core.IModule/default in device VINTF manifest.
+[   87.378658][  T215] servicemanager: Caller(pid=1909,uid=1041,sid=u:r:audioserver:s0) Since 'activity' could not be found trying to start it as a lazy AIDL service. (if it's not configured to be a l
+[   87.383783][    T1] init: Control message: Could not find 'aidl/activity' for ctl.interface_start from pid: 215 (/system/bin/servicemanager)
+[   87.385582][ T1959] servicemanager: Caller(pid=1909,uid=1041,sid=u:r:audioserver:s0) Tried to start aidl service activity as a lazy service, but was unable to. Usually this happens when a service i
