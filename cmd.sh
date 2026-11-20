@@ -1,9 +1,10 @@
-# 0107
-guest shell 'input keyevent KEYCODE_ENTER; sleep 5; input keyevent KEYCODE_DPAD_RIGHT; sleep 2'
-rec on; mark "SuperTuxKart: race loads"
-guest shell 'input keyevent KEYCODE_ENTER'; sleep 35
-mark "SuperTuxKart: driving"
-guest shell 'for n in 1 2 3 4; do input swipe 395 1024 395 1024 5000; input swipe 395 1024 250 1150 2500; input swipe 395 1024 395 1024 3000; input swipe 395 1024 540 1150 2500; done'
-mark "SuperTuxKart: driving ends"; rec off
-ls -la "$WORK"/live.frames
-guest shell 'cat /proc/loadavg'
+# 0108
+#noshot
+rec on; mark "SuperTuxKart: driving, second attempt"
+guest shell 'input motionevent DOWN 395 990; sleep 8'
+shot 0108a
+guest shell 'input motionevent MOVE 300 1050; sleep 3; input motionevent MOVE 395 990; sleep 6; input motionevent UP 395 990'
+shot 0108b
+guest shell 'input keyevent --longpress KEYCODE_DPAD_UP; input keyevent --longpress KEYCODE_DPAD_UP; input keyevent --longpress KEYCODE_DPAD_UP' 2>&1 | tail -2
+shot 0108c
+rec off; ls -la "$WORK"/live.frames
