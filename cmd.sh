@@ -1,6 +1,4 @@
-# 0007
+# 0008
 #noshot
-rec off
-guest logcat -d -t 4000 > "$WORK/lc.txt" 2>&1
-grep -a -n -iE "brawl|supercell" "$WORK/lc.txt" | grep -a -iE "fatal|signal|died|kill|exception|crash|abort|error|unsatisf|egl|gles|exit|tombstone|start proc|Force" | cut -c1-260 | tail -40
-echo ----; grep -a -B2 -A25 -E "Fatal signal|FATAL EXCEPTION" "$WORK/lc.txt" | cut -c1-220 | tail -70
+grep -a -E " 4709 " "$WORK/lc.txt" | grep -a -v "AndroidRuntime: at \|Report  : at " | cut -c1-330 | head -60
+guest shell 'getprop ro.build.tags; getprop ro.build.type; getprop ro.debuggable; getprop ro.boot.verifiedbootstate; getprop ro.boot.flash.locked; getenforce; uname -a; getprop ro.build.fingerprint; getprop ro.product.model; getprop ro.hardware'
