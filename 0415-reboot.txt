@@ -1,0 +1,6 @@
+reboot: up=0
+Virtio Video decoder vhost-user transport: in-process socketpair
+Virtio Sound vhost-user transport: in-process socketpair
+Virtio Kernarium GNSS vhost-user transport: in-process socketpair
+ADB disconnected: 127.0.0.1:5555
+boot_android.py: Android guest exited with status 253 before ADB became ready
