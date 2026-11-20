@@ -238,12 +238,13 @@ if [ "$NEWUP" = 1 ]; then
     python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     rm -rf "$base"
   fi
+  if [ "${AOT_IMAGE:-google}" = google ] && [ "${AOT_EXTRA:-1}" = 1 ]; then python3 "$HERE/aot_list_patch.py" "$UPSTREAM"; AOT_CAPACITY=(-DUML_AOT_INSTANCE_CAPACITY=8192); fi
   python3 tools/aot/release_artifact.py build --release "$AOT_TARGET" --fsck-erofs "$FSCK_EROFS" --out "$WORK/aot-artifact" --jobs 4 \
     || { echo "RESULT: the ahead-of-time code could not be built for this image."; exit 1; }
   ls -la "$WORK/aot-artifact"
-  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact")
+  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact" ${AOT_CAPACITY[@]+"${AOT_CAPACITY[@]}"})
   # The counting build generates its own code from the image; it is for the report, not for timing.
-  if [ "${AOT_DIAG:-0}" = 1 ]; then AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_IMAGE=$AOT_TARGET" "-DUML_AOT_FSCK_EROFS=$FSCK_EROFS" -DUML_AOT_DIAGNOSTICS=ON); fi
+  if [ "${AOT_DIAG:-0}" = 1 ]; then AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_IMAGE=$AOT_TARGET" "-DUML_AOT_FSCK_EROFS=$FSCK_EROFS" -DUML_AOT_DIAGNOSTICS=ON ${AOT_CAPACITY[@]+"${AOT_CAPACITY[@]}"}); fi
 fi
 cmake --preset macos-android17 ${AOT_FLAGS[@]+"${AOT_FLAGS[@]}"}
 cmake --build .build/presets/macos-android17 --target uml-darwin-android17 -j 4 -- -k 0

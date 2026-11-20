@@ -171,12 +171,14 @@ if [ "$NEWUP" = 1 ]; then
   AOT_TARGET="$WORK/release-aot"
   python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
   rm -rf "$base"
+  AOT_CAPACITY=()
+  if [ "${AOT_EXTRA:-1}" = 1 ]; then python3 "$HERE/aot_list_patch.py" "$UPSTREAM"; AOT_CAPACITY=(-DUML_AOT_INSTANCE_CAPACITY=8192); fi
   python3 tools/aot/release_artifact.py build --release "$AOT_TARGET" --fsck-erofs "$FSCK_EROFS" --out "$WORK/aot-artifact" --jobs 4 \
     || { echo "RESULT: the ahead-of-time code could not be built for this image."; exit 1; }
   ls -la "$WORK/aot-artifact"; cat "$WORK/aot-artifact/artifact.json" | head -30
   shasum -a 256 "$AOT_TARGET/release-manifest.json" "$AOT_TARGET/guest/system.img"
   rm -rf "$AOT_TARGET"
-  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact")
+  AOT_FLAGS=(-DUML_AOT_MODE=ON "-DUML_AOT_ARTIFACT=$WORK/aot-artifact" ${AOT_CAPACITY[@]+"${AOT_CAPACITY[@]}"})
 else
 curl -fsSL --retry 3 -o "$WORK/kernel.tar.gz" \
   https://github.com/imxieyi/Kernarium/releases/download/1.0b9-beta/android-6.18-arm64-4k-20261111-6.18.60-mc2.tar.gz

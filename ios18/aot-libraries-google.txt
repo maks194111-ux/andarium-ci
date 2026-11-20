@@ -1,0 +1,15 @@
+library /system/framework/oat/arm64/services.odex
+library /system/framework/oat/arm64/apex@com.google.android.gmssystem@priv-app@PrebuiltGmsCoreVic@361800000@PrebuiltGmsCoreVic.apk@classes.odex
+library /system/framework/oat/arm64/apex@com.android.permission@javalib@service-permission.jar@classes.odex
+library /system/framework/oat/arm64/apex@com.android.configinfrastructure@javalib@service-configinfrastructure.jar@classes.odex
+library /system/framework/oat/arm64/apex@com.android.tethering@javalib@service-connectivity.jar@classes.odex
+library /system/framework/oat/arm64/org.lineageos.platform.odex
+library /system/priv-app/SettingsProvider/oat/arm64/SettingsProvider.odex
+library /system/lib64/libEGL_angle.so
+library /system/lib64/libGLESv2_angle.so
+library /system/lib64/libharfbuzz_ng.so
+library /system/lib64/libinputflinger.so
+library /system/lib64/libinput.so
+library /system/lib64/libEGL.so
+library /system/lib64/libGLESv2.so
+library /system/lib64/libbase.so
