@@ -851,7 +851,7 @@ record_video() {
       launch_times "$name" "full compilation and half-length animations"
       note "$name: boot image and system server: $(guest shell "dumpsys package dexopt | grep -B1 -A4 -iE 'services.jar|boot image' | grep -oE 'status=[a-z-]+|filter=[a-z-]+' | sort | uniq -c; getprop dalvik.vm.systemservercompilerfilter; getprop dalvik.vm.boot-image; getprop pm.dexopt.install; getprop pm.dexopt.bg-dexopt; getprop pm.dexopt.first-boot; getprop dalvik.vm.usejit" 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     fi
-    echo "--- $name: engine lines about its code cache and memory"; grep -aiE 'gadget cache|jetsam|footprint' "$dir/launcher.log" | tail -40 | cut -c1-220
+    echo "--- $name: engine lines about its code cache and memory"; { grep -aiE 'gadget cache|jetsam|footprint' "$dir/launcher.log" || true; } | tail -40 | cut -c1-220
     note "$name: memory: $(guest shell 'grep -E "MemTotal|MemAvailable|SwapTotal|SwapFree" /proc/meminfo; grep -E "^(pswpin|pswpout|pgmajfault) " /proc/vmstat' 2>&1 | tr -d '\r' | tr -s ' \n' ' ')"
     pressure "$name after the recording"
     guest exec-out screencap -p > "$dir/after-recording.png" 2>/dev/null
