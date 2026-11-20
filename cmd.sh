@@ -1,10 +1,5 @@
-# 0108
+# 0109
+#quit
 #noshot
-rec on; mark "SuperTuxKart: driving, second attempt"
-guest shell 'input motionevent DOWN 395 990; sleep 8'
-shot 0108a
-guest shell 'input motionevent MOVE 300 1050; sleep 3; input motionevent MOVE 395 990; sleep 6; input motionevent UP 395 990'
-shot 0108b
-guest shell 'input keyevent --longpress KEYCODE_DPAD_UP; input keyevent --longpress KEYCODE_DPAD_UP; input keyevent --longpress KEYCODE_DPAD_UP' 2>&1 | tail -2
-shot 0108c
-rec off; ls -la "$WORK"/live.frames
+guest shell 'dumpsys gfxinfo org.supertuxkart.stk | grep -E "Total frames|Janky frames:|50th|90th|95th" | head -8; dumpsys SurfaceFlinger | grep -m3 -iE "org.supertuxkart.*fps|refresh-rate|activeMode"'
+echo bye
