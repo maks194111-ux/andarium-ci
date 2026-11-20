@@ -50,6 +50,7 @@ if [ "$NEWUP" = 1 ]; then
     ./configure --with-libzstd --disable-fuse --without-uuid && \
     make -j 4; } > "$WORK/erofs-build.log" 2>&1 ) || { tail -40 "$WORK/erofs-build.log"; grep -n 'error' "$WORK/erofs-utils/config.log" | tail -15; echo "RESULT: the EROFS reader could not be built."; exit 1; }
   FSCK_EROFS="$WORK/erofs-utils/fsck/fsck.erofs"
+  MKFS_EROFS="$WORK/erofs-utils/mkfs/mkfs.erofs"
   EROFS_HELP=$("$FSCK_EROFS" --help 2>&1 || true)
   case "$EROFS_HELP" in *zstd*) echo "EROFS reader built with Zstandard";; *) echo "$EROFS_HELP"; echo "RESULT: the EROFS reader has no Zstandard."; exit 1;; esac
 fi
@@ -252,6 +253,10 @@ if [ "$NEWUP" = 1 ]; then
     if [ "${LIVE_NAME:-}" = livephone ]; then
       # Boot state as a retail device reports it, and the product's own hardware name.
       sed -i '' 's/androidboot.verifiedbootstate=orange/androidboot.verifiedbootstate=green/; s/androidboot.vbmeta.device_state=unlocked/androidboot.vbmeta.device_state=locked/; s/androidboot.flash.locked=0/androidboot.flash.locked=1/; s/androidboot.hardware=cutf_cvm/androidboot.hardware=andarium/' "$AOT_TARGET/boot/kernel-command-line.txt"
+      # odm cannot override ro.product.* or ro.system.*. Change those values in
+      # the four partitions that own them, then build new ahead-of-time code below.
+      python3 "$HERE/sf_pipeline/phone_identity.py" "$AOT_TARGET" "$FSCK_EROFS" "$MKFS_EROFS" "$WORK" \
+        || { echo "RESULT: the tablet product names could not be installed."; exit 1; }
     fi
   fi
   if [ "${AOT_IMAGE:-google}" = google ] && [ "${AOT_EXTRA:-1}" = 1 ]; then python3 "$HERE/aot_list_patch.py" "$UPSTREAM"; AOT_CAPACITY=(-DUML_AOT_INSTANCE_CAPACITY=8192); fi
