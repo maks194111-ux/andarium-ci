@@ -255,8 +255,16 @@ if [ "$NEWUP" = 1 ]; then
       sed -i '' 's/androidboot.verifiedbootstate=orange/androidboot.verifiedbootstate=green/; s/androidboot.vbmeta.device_state=unlocked/androidboot.vbmeta.device_state=locked/; s/androidboot.flash.locked=0/androidboot.flash.locked=1/; s/androidboot.hardware=cutf_cvm/androidboot.hardware=andarium/' "$AOT_TARGET/boot/kernel-command-line.txt"
       # odm cannot override ro.product.* or ro.system.*. Change those values in
       # the four partitions that own them, then build new ahead-of-time code below.
-      python3 "$HERE/sf_pipeline/phone_identity.py" "$AOT_TARGET" "$FSCK_EROFS" "$MKFS_EROFS" "$WORK" \
-        || { echo "RESULT: the tablet product names could not be installed."; exit 1; }
+      # Android has files whose names differ only by case; the default macOS
+      # filesystem must not merge them during extraction.
+      rm -f "$WORK/phone-case.sparseimage"; mkdir -p "$WORK/phone-case-mount"
+      hdiutil create -quiet -type SPARSE -size 10g -fs "Case-sensitive APFS" \
+        -volname andarium-phone -o "$WORK/phone-case.sparseimage"
+      hdiutil attach -quiet -nobrowse -mountpoint "$WORK/phone-case-mount" "$WORK/phone-case.sparseimage"
+      if python3 "$HERE/sf_pipeline/phone_identity.py" "$AOT_TARGET" "$FSCK_EROFS" "$MKFS_EROFS" "$WORK/phone-case-mount"; then phone_ok=1; else phone_ok=0; fi
+      hdiutil detach -quiet "$WORK/phone-case-mount" || hdiutil detach -quiet -force "$WORK/phone-case-mount"
+      rm -f "$WORK/phone-case.sparseimage"; rmdir "$WORK/phone-case-mount"
+      [ "$phone_ok" = 1 ] || { echo "RESULT: the tablet product names could not be installed."; exit 1; }
     fi
   fi
   if [ "${AOT_IMAGE:-google}" = google ] && [ "${AOT_EXTRA:-1}" = 1 ]; then python3 "$HERE/aot_list_patch.py" "$UPSTREAM"; AOT_CAPACITY=(-DUML_AOT_INSTANCE_CAPACITY=8192); fi

@@ -213,7 +213,10 @@ def main():
                 images[name] = rebuilt
                 image.unlink()
 
-        replacement = scratch / "system.img"
+        # The scratch directory can be a case-sensitive APFS volume on macOS;
+        # keep the final rename on the same volume as the original disk.
+        replacement = disk_path.with_name("system-phone.img")
+        replacement.unlink(missing_ok=True)
         assemble(layout, images, replacement)
         verify(layout, replacement)
         for part, before in zip(layout["system_disk"]["partitions"],
