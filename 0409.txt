@@ -1,0 +1,42 @@
+   16355 /Users/runner/work/_temp/lc.txt
+   2 06:37:14.218   432   446 W android.hardware.wifi-service: No active wlan interfaces in use! Using default
+   2 06:37:14.215   432   446 E android.hardware.wifi-service: Unknown iface name: wlan0
+   2 06:37:14.208   432   446 E android.hardware.wifi-service: Unknown iface name: wlan0
+   2 06:36:53.235   432   446 W android.hardware.wifi-service: No active wlan interfaces in use! Using default
+   2 06:36:53.231   432   446 E android.hardware.wifi-service: Unknown iface name: wlan0
+   2 06:36:53.226   432   446 E android.hardware.wifi-service: Unknown iface name: wlan0
+   1 06:37:28.013  7757  7875 D PackageCacher: Feature flags for package /vendor/overlay/SystemUI__lineage_andarium__auto_generated_rro_vendor.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.012  7757  7875 D PackageCacher: Feature flags for package /product/overlay/framework-res__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.012  7757  7874 D PackageCacher: Feature flags for package /vendor/overlay/Settings__lineage_andarium__auto_generated_rro_vendor.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.011  7757  7874 D PackageCacher: Feature flags for package /product/overlay/SystemUI__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.memtrack/priv-app
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.memtrack/app
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.graphics.composer/priv-app
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.graphics.composer/app
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.drm.clearkey/priv-app
+   1 06:37:28.011  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.drm.clearkey/app
+   1 06:37:28.010  7757  7874 D PackageCacher: Feature flags for package /product/overlay/StorageManager__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.010  7757  7874 D PackageCacher: Feature flags for package /product/overlay/SimpleDeviceConfig__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.wifi/priv-app
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.wifi/app
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.power/priv-app
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.power/app
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.cas/priv-app
+   1 06:37:28.010  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.cas/app
+   1 06:37:28.009  7757  7876 D PackageCacher: Feature flags for package /product/overlay/SettingsProvider__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.009  7757  7874 D PackageCacher: Feature flags for package /product/overlay/Settings__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.keymint/priv-app
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.keymint/app
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.gatekeeper/priv-app
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.gatekeeper/app
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.dumpstate/priv-app
+   1 06:37:28.009  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.dumpstate/app
+   1 06:37:28.008  7757  7876 D PackageCacher: Feature flags for package /product/overlay/LineageSetupWizard__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.008  7757  7876 D PackageCacher: Feature flags for package /product/overlay/LineageParts__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.008  7757  7875 D PackageCacher: Feature flags for package /product/overlay/Launcher3QuickStep__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.008  7757  7874 D PackageCacher: Feature flags for package /product/overlay/ManagedProvisioning__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.008  7757  7873 D PackageCacher: Feature flags for package /product/overlay/LineageSettingsProvider__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.007  7757  7874 D PackageCacher: Feature flags for package /product/overlay/LatinIME__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.007  7757  7874 D PackageCacher: Feature flags for package /product/overlay/IntentResolver__lineage_andarium__auto_generated_rro_product.apk: {android.permission.flags.access_local_network_permission_enabled=true}
+   1 06:37:28.005  7757  7757 D PackageManager: No files in app dir /apex/com.android.hardware.thermal/priv-app
+sort: Broken pipe
