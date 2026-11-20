@@ -24,10 +24,13 @@ on:
       kernel_run:
         description: Guest kernel build run (ahead-of-time profile)
         default: ""
+      live_package_url:
+        description: Package archive fetched for the live profile
+        default: ""
       baseline_system_sha256:
         description: FIX9 system disk hash required for the AOT comparison
 permissions:
-  contents: read
+  contents: write
   actions: read
 concurrency:
   group: andarium-optimization-compare-${{ inputs.profiles }}-${{ inputs.aot_image }}
@@ -84,6 +87,8 @@ jobs:
           GAPPS_ALLSPEED_RELEASE_URL: ${{ secrets.GAPPS_ALLSPEED_RELEASE_URL }}
           GAPPS_FIX9_IPA_URL: ${{ secrets.GAPPS_FIX9_IPA_URL }}
           EXPECTED_BASELINE_SYSTEM_SHA256: ${{ inputs.baseline_system_sha256 }}
+          LIVE_TOKEN: ${{ github.token }}
+          LIVE_PACKAGE_URL: ${{ inputs.live_package_url }}
         run: |
           set -euo pipefail
           tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/angle-download/angle-package.tar.gz"

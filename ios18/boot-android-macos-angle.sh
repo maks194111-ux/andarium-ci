@@ -26,6 +26,15 @@ command -v adb >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask 
 adb version | head -1; command -v sgdisk
 # The newer engine tree (ahead-of-time code for the system libraries).
 AOT_DIAG=0; if [ "${PROFILES:-all}" = aotdiag ]; then AOT_DIAG=1; PROFILES=aotnew; fi
+# Live session: the same build as aotnew, then commands arrive from the live-cmd
+# branch and screenshots go back to live-out. A game package is fetched meanwhile.
+LIVE=0; if [ "${PROFILES:-all}" = live ]; then LIVE=1; PROFILES=aotnew
+  if [ -n "${LIVE_PACKAGE_URL:-}" ]; then
+    ( curl -fsSL --retry 5 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36" \
+        -o "$WORK/live-package.part" "$LIVE_PACKAGE_URL" && mv "$WORK/live-package.part" "$WORK/live-package.zip" \
+        && mkdir -p "$WORK/live-package" && unzip -oq "$WORK/live-package.zip" -d "$WORK/live-package" && touch "$WORK/live-package.ready" ) > "$WORK/live-package.log" 2>&1 &
+  fi
+fi
 NEWUP=0; case "${PROFILES:-all}" in aotnew) NEWUP=1;; esac
 if [ "$NEWUP" = 1 ]; then
   stage "EROFS reader with Zstandard (the ahead-of-time tool needs it)"
@@ -710,6 +719,35 @@ watch_gapps() {
 # The frames come from the engine's own mirror (frame_record_patch.py), at most
 # 60 a second, 720 pixels wide; the guest renders 2048x2732. Setup Wizard is
 # closed over adb before the recording, which a person would do by hand.
+live_loop() {
+  local name=$1 dir=$2 record=$3
+  local repo="$WORK/live" url="https://x-access-token:${LIVE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+  local deadline=$(( $(date +%s) + ${LIVE_MINUTES:-100} * 60 )) last sha n
+  rm -rf "$repo"; git init -q "$repo"; git -C "$repo" config user.name ci; git -C "$repo" config user.email ci@example.invalid
+  git -C "$repo" checkout -q --orphan live-out
+  shot() { guest exec-out screencap -p > "$WORK/shot.png" 2>/dev/null || true; sips -Z "${2:-1280}" -s format jpeg -s formatOptions 55 "$WORK/shot.png" --out "$repo/$1.jpg" >/dev/null 2>&1 || true; }
+  rec() { if [ "$1" = on ]; then touch "$record.on"; else rm -f "$record.on"; fi; }
+  publish() { git -C "$repo" add -A >/dev/null 2>&1; git -C "$repo" commit -qm "$1" >/dev/null 2>&1 || true; git -C "$repo" push -qf "$url" HEAD:live-out >/dev/null 2>&1 || echo "live: push failed"; }
+  last=$(git ls-remote "$url" refs/heads/live-cmd 2>/dev/null | cut -f1 || true)
+  { date -u; guest shell 'df -h /data; cat /proc/loadavg' 2>&1; ls -la "$WORK"/live-package* 2>&1 | head; } > "$repo/0000.txt" 2>&1 || true
+  shot 0000; publish ready; note "$name: live session ready"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    sleep 3
+    kill -0 "$launcher" 2>/dev/null || { echo "live: the emulator exited" > "$repo/exit.txt"; publish exit; break; }
+    sha=$(git ls-remote "$url" refs/heads/live-cmd 2>/dev/null | cut -f1 || true)
+    if [ -z "$sha" ] || [ "$sha" = "$last" ]; then continue; fi
+    last=$sha
+    git -C "$repo" fetch -q --depth=1 "$url" live-cmd 2>/dev/null || continue
+    git -C "$repo" show FETCH_HEAD:cmd.sh > "$WORK/cmd.sh" 2>/dev/null || continue
+    n=$(head -1 "$WORK/cmd.sh" | tr -dc 0-9); n=${n:-x}
+    echo "live: command $n"
+    set +e; ( set +eu; source "$WORK/cmd.sh" ) 2>&1 | tail -c 30000 > "$repo/$n.txt"; set -e
+    grep -q '^#noshot' "$WORK/cmd.sh" || shot "$n"
+    publish "$n"
+    if grep -q '^#quit' "$WORK/cmd.sh"; then break; fi
+  done
+  rm -f "$record.on"; mark "end"
+}
 record_video() {
   local name=$1 release=$2 label=$3
   local dir="$OUT/$name"; mkdir -p "$dir"
@@ -723,8 +761,8 @@ record_video() {
   mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
   local started=$(date +%s) booted=0 i
   UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
-    --display offscreen --offscreen-mirror "720@$hertz" --width 2048 --height 2732 --dpi 264 --audio-output null \
-    --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine "${VIDEO_ENGINE:-gadgets}" --adb-timeout 1800 --boot-timeout 3000 \
+    --display offscreen --offscreen-mirror "${VIDEO_MIRROR:-720}@$hertz" --width "${VIDEO_W:-2048}" --height "${VIDEO_H:-2732}" --dpi 264 --audio-output null \
+    ${VIDEO_DATA_GIB:+--data-gib "$VIDEO_DATA_GIB"} --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine "${VIDEO_ENGINE:-gadgets}" --adb-timeout 1800 --boot-timeout 3000 \
     > "$dir/launcher.log" 2>&1 &
   local launcher=$!
   for i in $(seq 1 120); do
@@ -774,6 +812,7 @@ record_video() {
     note "$name: SurfaceFlinger budget property: [$(guest shell getprop debug.sf.late.sf.duration 2>/dev/null | tr -d '\r\n')], mode: $(guest shell dumpsys SurfaceFlinger 2>/dev/null | grep -a -m1 -o 'vsyncRate=[0-9.]* Hz')"
     pressure "$name before the recording"
     note "$name: background limits: dex2oat threads [$(guest shell getprop dalvik.vm.dex2oat-threads 2>/dev/null | tr -d '\r\n')], background [$(guest shell getprop dalvik.vm.background-dex2oat-threads 2>/dev/null | tr -d '\r\n')]; cpusets background [$(guest shell cat /dev/cpuset/background/cpus 2>&1 | tr -d '\r\n')], system-background [$(guest shell cat /dev/cpuset/system-background/cpus 2>&1 | tr -d '\r\n')], top-app [$(guest shell cat /dev/cpuset/top-app/cpus 2>&1 | tr -d '\r\n')]"
+    if [ "${VIDEO_LIVE:-0}" = 1 ]; then live_loop "$name" "$dir" "$record"; else
     touch "$record.on"; sleep 2
     mark "home screen, idle"; sleep 4
     mark "Settings opens"
@@ -794,6 +833,7 @@ record_video() {
     mark "end"
     sleep 1; rm -f "$record.on"
     launch_times "$name" "as shipped"
+    fi
     if [ "${LAUNCH_AB:-0}" = 1 ]; then
       # Same boot: how the three applications are compiled now, then full compilation, then the launches again.
       for package in com.android.settings com.android.vending com.android.documentsui; do
@@ -1347,6 +1387,11 @@ if [ "${PROFILES:-all}" = aotnew ]; then
   python3 -m pip install --quiet --target "$WORK/video-tools" lz4==4.4.4 || true
   export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=8 LAUNCH_ROUNDS=4 LAUNCH_COST=2
   if [ "$AOT_DIAG" = 1 ]; then export LAUNCH_ROUNDS=2; fi
+  if [ "$LIVE" = 1 ]; then
+    export VIDEO_LIVE=1 VIDEO_SETTLE_MINUTES=3 VIDEO_W=2732 VIDEO_H=2048 VIDEO_MIRROR=1280 VIDEO_DATA_GIB=24
+    record_video live "$AOT_TARGET" "live session, ahead-of-time code on"
+    echo "RESULT: live session finished (status $RESULT)."; exit "$RESULT"
+  fi
   DARWIN_UML_AOT_REPORT="$WORK/aot-report.txt" UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
   echo "--- ahead-of-time report (was the code entered, what refused)"
   if [ -f "$WORK/aot-report.txt" ]; then
