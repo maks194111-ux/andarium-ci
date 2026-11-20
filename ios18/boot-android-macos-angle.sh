@@ -28,7 +28,7 @@ adb version | head -1; command -v sgdisk
 AOT_DIAG=0; if [ "${PROFILES:-all}" = aotdiag ]; then AOT_DIAG=1; PROFILES=aotnew; fi
 # Live session: the same build as aotnew, then commands arrive from the live-cmd
 # branch and screenshots go back to live-out. A game package is fetched meanwhile.
-LIVE=0; if [ "${PROFILES:-all}" = live ]; then LIVE=1; PROFILES=aotnew
+LIVE=0; LIVE_NAME=${PROFILES:-all}; if [ "$LIVE_NAME" = live ] || [ "$LIVE_NAME" = liveoff ]; then LIVE=1; PROFILES=aotnew
   if [ -n "${LIVE_PACKAGE_URL:-}" ]; then
     ( curl -fsSL --retry 5 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36" \
         -o "$WORK/live-package.part" "$LIVE_PACKAGE_URL" && mv "$WORK/live-package.part" "$WORK/live-package.zip" \
@@ -727,17 +727,20 @@ live_loop() {
   git -C "$repo" checkout -q --orphan live-out
   shot() { guest exec-out screencap -p > "$WORK/shot.png" 2>/dev/null || true; sips -Z "${2:-1280}" -s format jpeg -s formatOptions 55 "$WORK/shot.png" --out "$repo/$1.jpg" >/dev/null 2>&1 || true; }
   rec() { if [ "$1" = on ]; then touch "$record.on"; else rm -f "$record.on"; fi; }
-  publish() { git -C "$repo" add -A >/dev/null 2>&1; git -C "$repo" commit -qm "$1" >/dev/null 2>&1 || true; git -C "$repo" push -qf "$url" HEAD:live-out >/dev/null 2>&1 || echo "live: push failed"; }
-  last=$(git ls-remote "$url" refs/heads/live-cmd 2>/dev/null | cut -f1 || true)
+  publish() { git -C "$repo" add -A >/dev/null 2>&1; git -C "$repo" commit -qm "$1" >/dev/null 2>&1 || true; git -C "$repo" push -qf "$url" HEAD:"$LIVE_NAME-out" >/dev/null 2>&1 || echo "live: push failed"; }
+  last=$(git ls-remote "$url" refs/heads/"$LIVE_NAME-cmd" 2>/dev/null | cut -f1 || true)
   { date -u; guest shell 'df -h /data; cat /proc/loadavg' 2>&1; ls -la "$WORK"/live-package* 2>&1 | head; } > "$repo/0000.txt" 2>&1 || true
+  # The frame record must not fill the disk: recording stops at 10 GiB.
+  ( while sleep 5; do [ -f "$record" ] || continue; [ "$(stat -f %z "$record" 2>/dev/null || echo 0)" -gt 10737418240 ] && rm -f "$record.on"; done ) &
+  local guard=$!
   shot 0000; publish ready; note "$name: live session ready"
   while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 3
     kill -0 "$launcher" 2>/dev/null || { echo "live: the emulator exited" > "$repo/exit.txt"; publish exit; break; }
-    sha=$(git ls-remote "$url" refs/heads/live-cmd 2>/dev/null | cut -f1 || true)
+    sha=$(git ls-remote "$url" refs/heads/"$LIVE_NAME-cmd" 2>/dev/null | cut -f1 || true)
     if [ -z "$sha" ] || [ "$sha" = "$last" ]; then continue; fi
     last=$sha
-    git -C "$repo" fetch -q --depth=1 "$url" live-cmd 2>/dev/null || continue
+    git -C "$repo" fetch -q --depth=1 "$url" "$LIVE_NAME-cmd" 2>/dev/null || continue
     git -C "$repo" show FETCH_HEAD:cmd.sh > "$WORK/cmd.sh" 2>/dev/null || continue
     n=$(head -1 "$WORK/cmd.sh" | tr -dc 0-9); n=${n:-x}
     echo "live: command $n"
@@ -746,7 +749,7 @@ live_loop() {
     publish "$n"
     if grep -q '^#quit' "$WORK/cmd.sh"; then break; fi
   done
-  rm -f "$record.on"; mark "end"
+  rm -f "$record.on"; mark "end"; kill "$guard" 2>/dev/null || true
 }
 record_video() {
   local name=$1 release=$2 label=$3
@@ -1388,8 +1391,9 @@ if [ "${PROFILES:-all}" = aotnew ]; then
   export UML_ANGLE_ASYNC=1 VIDEO_HZ=120 VIDEO_SETTLE_MINUTES=8 LAUNCH_ROUNDS=4 LAUNCH_COST=2
   if [ "$AOT_DIAG" = 1 ]; then export LAUNCH_ROUNDS=2; fi
   if [ "$LIVE" = 1 ]; then
-    export VIDEO_LIVE=1 VIDEO_SETTLE_MINUTES=3 VIDEO_W=2732 VIDEO_H=2048 VIDEO_MIRROR=1280 VIDEO_DATA_GIB=24
-    record_video live "$AOT_TARGET" "live session, ahead-of-time code on"
+    export VIDEO_LIVE=1 VIDEO_SETTLE_MINUTES=3 VIDEO_W=2732 VIDEO_H=2048 VIDEO_DATA_GIB=24
+    if [ "$LIVE_NAME" = liveoff ]; then export UML_AOT_SWITCH=off; else export UML_AOT_SWITCH=on; fi
+    record_video live "$AOT_TARGET" "live session, ahead-of-time code $UML_AOT_SWITCH"
     echo "RESULT: live session finished (status $RESULT)."; exit "$RESULT"
   fi
   DARWIN_UML_AOT_REPORT="$WORK/aot-report.txt" UML_AOT_SWITCH=on record_video aot-on "$AOT_TARGET" "ahead-of-time code on"
