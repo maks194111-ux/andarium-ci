@@ -1,0 +1,9 @@
+Success
+Booting accepted Android release release-aotnew.
+Android rootfs /Users/runner/work/_temp/release-aotnew, normal boot, system disk /Users/runner/work/_temp/release-aotnew/guest/system.img, data disk /Users/runner/work/_temp/instance-live/data.img
+[    0.066602][    T0] Kernel command line: ubd0r=/Users/runner/work/_temp/release-aotnew/guest/system.img ubd1=/Users/runner/work/_temp/instance-live/data.img root=/dev/ram0 rootfstype=ramfs init=/in
+11-20 08:59:46.546  7152  7152 E Report  : Exiting: 
+11-20 08:59:46.546  7152  7152 E Report  : rmy.X: 02
+11-20 08:59:46.783   614   628 I ActivityManager: Process com.supercell.brawlstars (pid 7152) has died: fg  TOP 
+      topResumedActivity=ActivityRecord{60498910 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t9}
+Failed to write while dumping service activity: Broken pipe
