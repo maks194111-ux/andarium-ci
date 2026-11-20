@@ -1,0 +1,7 @@
+green
+andarium
+1
+0
+      topResumedActivity=ActivityRecord{105489635 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t8}
+Failed to write while dumping service activity: Broken pipe
+31.82 20.21 8.44 32/1917 4117
