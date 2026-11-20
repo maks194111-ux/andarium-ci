@@ -207,8 +207,13 @@ def main():
                 member_name, updates = PROPERTIES[name]
                 rewrite_properties(source_tar, changed_tar, member_name, updates)
                 source_tar.unlink()
-                run([mkfs, "--tar=f", "-zzstd", "-T", "1230768000", "--quiet", rebuilt, changed_tar])
+                # mkfs otherwise inherits a 16 KiB page size from arm64 macOS;
+                # this Android kernel and its original release use 4 KiB EROFS.
+                run([mkfs, "-b4096", "--tar=f", "-zzstd", "-T", "1230768000", "--quiet", rebuilt, changed_tar])
                 run([fsck, rebuilt])
+                with rebuilt.open("rb") as check:
+                    check.seek(1024 + 12)  # erofs_super_block.blkszbits
+                    assert check.read(1) == b"\x0c", f"not a 4 KiB EROFS image: {name}"
                 changed_tar.unlink()
                 images[name] = rebuilt
                 image.unlink()
