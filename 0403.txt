@@ -1,0 +1,7 @@
+Success
+ls: /vendor/etc/init/hw/: No such file or directory
+andarium-background.rc
+ls: /vendor/ueventd.rc: No such file or directory
+/vendor/etc/fstab.uml
+9:import /init.${ro.hardware}.rc
+10:import /vendor/etc/init/hw/init.${ro.hardware}.rc
