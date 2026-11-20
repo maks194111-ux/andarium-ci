@@ -28,7 +28,7 @@ adb version | head -1; command -v sgdisk
 AOT_DIAG=0; if [ "${PROFILES:-all}" = aotdiag ]; then AOT_DIAG=1; PROFILES=aotnew; fi
 # Live session: the same build as aotnew, then commands arrive from the live-cmd
 # branch and screenshots go back to live-out. A game package is fetched meanwhile.
-LIVE=0; LIVE_NAME=${PROFILES:-all}; if [ "$LIVE_NAME" = live ] || [ "$LIVE_NAME" = liveoff ]; then LIVE=1; PROFILES=aotnew
+LIVE=0; LIVE_NAME=${PROFILES:-all}; if [ "$LIVE_NAME" = live ] || [ "$LIVE_NAME" = liveoff ] || [ "$LIVE_NAME" = livephone ]; then LIVE=1; PROFILES=aotnew
   if [ -n "${LIVE_PACKAGE_URL:-}" ]; then
     ( curl -fsSL --retry 5 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36" \
         -o "$WORK/live-package.part" "$LIVE_PACKAGE_URL" && mv "$WORK/live-package.part" "$WORK/live-package.zip" \
@@ -244,8 +244,15 @@ if [ "$NEWUP" = 1 ]; then
     done
     rm -f "$WORK/gapps.ipa"
     AOT_TARGET="$WORK/release-aotnew"
-    python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$HERE/sf_pipeline/odm-bgquiet.img" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
+    ODM_IMAGE="$HERE/sf_pipeline/odm-bgquiet.img"
+    # The tablet identity: odm-phone.img is odm-bgquiet.img plus odm-phone-extra.prop (make_odm.py).
+    if [ "${LIVE_NAME:-}" = livephone ]; then ODM_IMAGE="$HERE/sf_pipeline/odm-phone.img"; fi
+    python3 "$HERE/sf_pipeline/splice_odm.py" "$base" "$AOT_TARGET" "$ODM_IMAGE" || { echo "RESULT: the odm partition could not be replaced."; exit 1; }
     rm -rf "$base"
+    if [ "${LIVE_NAME:-}" = livephone ]; then
+      # Boot state as a retail device reports it, and the product's own hardware name.
+      sed -i '' 's/androidboot.verifiedbootstate=orange/androidboot.verifiedbootstate=green/; s/androidboot.vbmeta.device_state=unlocked/androidboot.vbmeta.device_state=locked/; s/androidboot.flash.locked=0/androidboot.flash.locked=1/; s/androidboot.hardware=cutf_cvm/androidboot.hardware=andarium/' "$AOT_TARGET/boot/kernel-command-line.txt"
+    fi
   fi
   if [ "${AOT_IMAGE:-google}" = google ] && [ "${AOT_EXTRA:-1}" = 1 ]; then python3 "$HERE/aot_list_patch.py" "$UPSTREAM"; AOT_CAPACITY=(-DUML_AOT_INSTANCE_CAPACITY=8192); fi
   python3 tools/aot/release_artifact.py build --release "$AOT_TARGET" --fsck-erofs "$FSCK_EROFS" --out "$WORK/aot-artifact" --jobs 4 \

@@ -1,0 +1,17 @@
+# Andarium: the device names itself as a tablet, without the reference
+# virtual-device names the base product inherited.
+ro.board.platform=andarium
+ro.hardware.virtual_device=0
+ro.soc.model=AK1
+ro.product.model=Andarium Tab
+ro.product.odm.model=Andarium Tab
+ro.product.vendor.model=Andarium Tab
+ro.product.vendor_dlkm.model=Andarium Tab
+ro.product.system_ext.model=Andarium Tab
+ro.product.bootimage.model=Andarium Tab
+ro.product.system.model=Andarium Tab
+ro.product.system.brand=Andarium
+ro.product.system.device=andarium
+ro.product.system.name=lineage_andarium
+ro.product.system.manufacturer=Kernarium
+ro.system.build.fingerprint=Andarium/lineage_andarium/andarium:17/CP2A.260605.016/2026110817:user/release-keys
