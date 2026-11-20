@@ -1,0 +1,22 @@
+Success
+green
+1
+andarium
+1
+1
+12:50:36.106  4763  4763 W libc    : Access denied finding property "qemu.sf.lcd_density"
+12:50:36.107  4763  4763 W libc    : Access denied finding property "qemu.sf.lcd_density"
+12:50:56.269  4830  4830 W libc    : Access denied finding property "ro.debuggable"
+12:50:56.271  4830  4830 W libc    : Access denied finding property "ro.secure"
+12:50:56.414  4830  4830 W libc    : Access denied finding property "ro.bootimage.build.fingerprint"
+12:50:56.427  4830  4830 W libc    : Access denied finding property "qemu.hw.mainkeys"
+12:50:56.428  4830  4830 W libc    : Access denied finding property "qemu.sf.lcd_density"
+12:50:56.428  4830  4830 W libc    : Access denied finding property "vendor.qemu.sf.fake_camera"
+12:50:56.428  4830  4830 W libc    : Access denied finding property "vendor.qemu.timezone"
+12:50:56.428  4830  4830 W libc    : Access denied finding property "ro.boot.serialno"
+12:50:56.451  4830  4830 W libc    : Access denied finding property "ro.boot.serialno"
+12:50:56.496  4830  4830 E Report  : Exiting: 
+12:50:56.496  4830  4830 E Report  : rmy.X: 02
+12:50:56.803   586  1096 I ActivityManager: Process com.supercell.brawlstars (pid 4830) has died: fg  TOP 
+      topResumedActivity=ActivityRecord{105489635 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t8}
+Failed to write while dumping service activity: Broken pipe
