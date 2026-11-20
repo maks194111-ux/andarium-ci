@@ -1,0 +1,18 @@
+-rw-r--r--  1 runner  staff  0 Nov 20 11:44 /Users/runner/work/_temp/live-package.ready
+
+/Users/runner/work/_temp/live-package:
+total 3936344
+drwxr-xr-x  25 runner  staff         800 Nov 20 11:44 .
+drwxr-xr-x  31 runner  staff         992 Nov 20 12:12 ..
+-rw-r--r--   1 runner  staff    58209837 Jan 10  1980 com.supercell.brawlstars.apk
+-rw-r--r--   1 runner  staff       69842 Jan 10  1980 config.ar.apk
+-rw-r--r--   1 runner  staff   100930852 Jan 10  1980 config.arm64_v8a.apk
+-rw-r--r--   1 runner  staff       61650 Jan 10  1980 config.de.apk
+-rw-r--r--   1 runner  staff      110802 Jan 10  1980 config.en.apk
+-rw-r--r--   1 runner  staff       73938 Jan 10  1980 config.es.apk
+1
+ 06:21:08 up 3 min,  0 users,  load average: 23.62, 10.94, 4.18
+0
+      topResumedActivity=ActivityRecord{12915257 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t8}
+Failed to write while dumping service activity: Broken pipe
+23.62 10.94 4.18 9/1583 2773
