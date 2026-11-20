@@ -1,0 +1,6 @@
+GAME_BEFORE
+/Users/runner/work/_temp/cmd.sh: line 5: pidof: command not found
+    topResumedActivity=ActivityRecord{186815015 u0 com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity t10}
+GAME_AFTER_60_SECONDS
+/Users/runner/work/_temp/cmd.sh: line 9: pidof: command not found
+    topResumedActivity=ActivityRecord{186815015 u0 com.android.permissioncontroller/.permission.ui.GrantPermissionsActivity t10}
