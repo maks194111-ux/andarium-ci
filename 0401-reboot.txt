@@ -1,0 +1,6 @@
+reboot: up=1
+[  105.232398][    T1] init: Service 'idmap2d' (pid 1584) received SIGKILL
+[  105.232587][    T1] init: Sending SIGKILL to service 'idmap2d' (pid 1584) process group...
+[  105.254283][    T1] libprocessgroup: Failed to write 1 to /sys/fs/cgroup/system/uid_1000/pid_1584/cgroup.kill: No such file or directory
+ANGLE scanout stats: 5.0 s, 86 frames (17.2 per second), copy 0.34 ms average, 6.36 ms worst, longest gap 1021 ms
+ANGLE scanout mode: async=2400 sync=0 busy=0
