@@ -1,0 +1,22 @@
+/Users/runner/work/_temp/midr-probe: 1 file pushed, 0 skipped. 0.5 MB/s (4212 bytes in 0.008s)
+DIRECT_MIDR
+00000000410fd0b4
+PROC_CPUINFO
+processor	: 0
+BogoMIPS	: 48.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb flagm2 frint cssc mops
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd0b
+CPU revision	: 4
+
+processor	: 1
+BogoMIPS	: 48.00
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc sha3 asimddp sha512 asimdfhm dit uscat ilrcpc flagm sb flagm2 frint cssc mops
+CPU implementer	: 0x41
+CPU architecture: 8
+CPU variant	: 0x0
+CPU part	: 0xd0b
+AUDIO_IDENTITY
+default
