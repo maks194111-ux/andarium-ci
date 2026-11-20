@@ -1,7 +1,10 @@
-# 0303
+# 0304
 #noshot
-#reboot
-f=$(ls -d "$WORK"/release-aotnew)/boot/kernel-command-line.txt
-cp "$f" "$WORK/cmdline.orig"
-sed -i '' 's/androidboot.verifiedbootstate=orange/androidboot.verifiedbootstate=green/; s/androidboot.vbmeta.device_state=unlocked/androidboot.vbmeta.device_state=locked/; s/androidboot.flash.locked=0/androidboot.flash.locked=1/' "$f"
-grep -o "androidboot.verifiedbootstate=[a-z]*\|device_state=[a-z]*\|flash.locked=[0-9]" "$f"
+guest shell 'getprop ro.boot.verifiedbootstate; getprop ro.boot.flash.locked; getprop ro.hardware; getprop sys.boot_completed; pm list packages | grep -c supercell'
+guest logcat -c
+guest shell 'monkey -p com.supercell.brawlstars -c android.intent.category.LAUNCHER 1' >/dev/null 2>&1
+sleep 40
+guest logcat -d > "$WORK/lc.txt" 2>&1
+grep -a -E "Report  : (Exiting|rmy)|brawlstars.*has died|Fatal signal|libc    : Access denied" "$WORK/lc.txt" | sed 's/^[0-9-]* //' | cut -c1-200 | head -14
+guest shell 'pidof com.supercell.brawlstars; dumpsys activity activities | grep -m1 topResumed'
+shot "$n"
