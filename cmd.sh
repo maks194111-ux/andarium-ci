@@ -1,6 +1,8 @@
-# 0101
-#noshot
-guest shell 'for p in ro.build.tags ro.build.type ro.debuggable ro.secure ro.boot.verifiedbootstate ro.boot.flash.locked ro.build.fingerprint ro.product.model ro.product.manufacturer ro.hardware ro.kernel.qemu ro.boot.qemu ro.product.cpu.abilist ro.build.version.release ro.build.version.sdk; do echo "$p=[$(getprop $p)]"; done; getenforce; uname -a; head -12 /proc/cpuinfo; settings get global adb_enabled; settings get global development_settings_enabled' 2>&1 | cut -c1-200
-ls "$WORK"/live-package.ready; cat "$WORK/live-package.log"
-cd "$WORK/live-package" && adb -s "$SERIAL" install-multiple com.supercell.brawlstars.apk config.arm64_v8a.apk config.en.apk config.ru.apk config.xxhdpi.apk install_time_asset_pack.apk 2>&1 | tail -1
-rm -rf "$WORK/live-package" "$WORK/live-package.zip"; df -h "$WORK" | tail -1
+# 0102
+guest logcat -c
+guest shell 'monkey -p com.supercell.brawlstars -c android.intent.category.LAUNCHER 1' >/dev/null 2>&1
+sleep 30
+guest logcat -d > "$WORK/lc.txt" 2>&1
+P=$(grep -a "Start proc.*brawlstars" "$WORK/lc.txt" | head -1 | sed 's/.*Start proc \([0-9]*\):.*/\1/'); echo "pid $P"
+grep -a -E " $P  *[0-9]+ " "$WORK/lc.txt" | grep -a -v "AndroidRuntime: at \|Report  : at \|type=1300" | sed 's/^[0-9-]* //' | cut -c1-230 | head -70
+grep -a -c "brawlstars.*has died" "$WORK/lc.txt"
