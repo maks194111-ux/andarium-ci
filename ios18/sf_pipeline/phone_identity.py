@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Replace the virtual-device product names in an Andarium release.
+"""Replace the virtual-device identity names in an Andarium release.
 
 The property service does not allow odm to override ro.product.* or ro.system.*
 values. Rebuild those owning EROFS partitions instead, preserving every tar
 entry's owner, mode, timestamps and SELinux label. Update the same name in the
-init_boot ramdisk. No executable, application, or protection code is changed.
+init_boot ramdisk. Use the vendor's existing default audio HAL instead of the
+inherited goldfish name. No executable, application, or protection code is changed.
 
 Usage: phone_identity.py <release> <fsck.erofs> <mkfs.erofs> <scratch dir>
 The release is updated in place. Its ahead-of-time code must be rebuilt after.
@@ -99,18 +100,29 @@ def check_android_metadata(member):
 
 
 def rewrite_properties(source, destination, member_name, updates):
-    """Stream a large tar; only small property files pass through memory."""
+    """Stream a large tar; only small configuration files pass through memory."""
+    is_vendor = "ro.product.vendor.model" in updates
+    audio_libraries = set()
     with tarfile.open(source) as tin, tarfile.open(destination, "w", format=tarfile.PAX_FORMAT) as tout:
         for member in tin:
             name = member.name.removeprefix("./")
             is_primary = name == member_name
             is_build_properties = name.endswith("build.prop") and member.isfile()
-            if not is_build_properties:
+            is_audio_init = is_vendor and name == "etc/init/init.kernarium.rc" and member.isfile()
+            if name in ("lib/hw/audio.primary.default.so", "lib64/hw/audio.primary.default.so"):
+                audio_libraries.add(name)
+            if not is_build_properties and not is_audio_init:
                 tout.addfile(member, tin.extractfile(member) if member.isfile() else None)
                 continue
             check_android_metadata(member)
             text = tin.extractfile(member).read().decode()
-            changed_text, changed = edit_property_text(text, updates if is_primary else {})
+            if is_audio_init:
+                old = "    setprop ro.hardware.audio.primary goldfish\n"
+                assert text.count(old) == 1, "stock goldfish audio property was not found exactly once"
+                changed_text = text.replace(old, "    setprop ro.hardware.audio.primary default\n")
+                changed = ["ro.hardware.audio.primary=default"]
+            else:
+                changed_text, changed = edit_property_text(text, updates if is_primary else {})
             if not changed:
                 # Keep the original member bytes when there is nothing to change.
                 tout.addfile(member, io.BytesIO(text.encode()))
@@ -118,7 +130,10 @@ def rewrite_properties(source, destination, member_name, updates):
             data = changed_text.encode()
             member.size = len(data)
             tout.addfile(member, io.BytesIO(data))
-            print(f"properties changed in {name}: {', '.join(changed)}", flush=True)
+            print(f"configuration changed in {name}: {', '.join(changed)}", flush=True)
+    if is_vendor:
+        assert audio_libraries == {"lib/hw/audio.primary.default.so", "lib64/hw/audio.primary.default.so"}, \
+            f"default audio HAL is incomplete: {sorted(audio_libraries)}"
 
 
 def update_init_boot(image):
