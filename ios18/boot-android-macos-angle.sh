@@ -744,7 +744,19 @@ live_loop() {
     git -C "$repo" show FETCH_HEAD:cmd.sh > "$WORK/cmd.sh" 2>/dev/null || continue
     n=$(head -1 "$WORK/cmd.sh" | tr -dc 0-9); n=${n:-x}
     echo "live: command $n"
-    set +e; ( set +eu; source "$WORK/cmd.sh" ) 2>&1 | tail -c 30000 > "$repo/$n.txt"; set -e
+    # A command gets 280 s ("#limit N" changes it); a hung adb call must not end the session.
+    local limit job waited=0; limit=$(grep -m1 '^#limit ' "$WORK/cmd.sh" | tr -dc 0-9 || true); limit=${limit:-280}
+    set +e
+    ( set +eu; source "$WORK/cmd.sh" ) > "$WORK/cmd.out" 2>&1 &
+    job=$!
+    while kill -0 "$job" 2>/dev/null && [ "$waited" -lt "$limit" ]; do sleep 2; waited=$((waited + 2)); done
+    if kill -0 "$job" 2>/dev/null; then
+      pkill -P "$job" 2>/dev/null; kill "$job" 2>/dev/null; pkill -f "adb -s $SERIAL" 2>/dev/null
+      echo "live: command stopped after $limit s" >> "$WORK/cmd.out"
+    fi
+    wait "$job" 2>/dev/null
+    tail -c 30000 "$WORK/cmd.out" > "$repo/$n.txt"
+    set -e
     grep -q '^#noshot' "$WORK/cmd.sh" || shot "$n"
     publish "$n"
     if grep -q '^#quit' "$WORK/cmd.sh"; then break; fi
