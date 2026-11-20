@@ -748,6 +748,23 @@ live_loop() {
     grep -q '^#noshot' "$WORK/cmd.sh" || shot "$n"
     publish "$n"
     if grep -q '^#quit' "$WORK/cmd.sh"; then break; fi
+    if grep -q '^#reboot' "$WORK/cmd.sh"; then
+      # The guest restarts with whatever the command changed in the release; "#reboot reset" also makes a new data disk.
+      local flag=""; if grep -q '^#reboot reset' "$WORK/cmd.sh"; then flag=--reset; fi
+      rm -f "$record.on"; kill -INT "$launcher" 2>/dev/null || true; sleep 20; kill -9 "$launcher" 2>/dev/null || true
+      pkill -9 -f uml-darwin-android17 2>/dev/null || true; adb disconnect "$SERIAL" >/dev/null 2>&1 || true; sleep 5
+      vm_launch "$flag"; local up=0 k
+      for k in $(seq 1 90); do
+        sleep 10; kill -0 "$launcher" 2>/dev/null || break
+        if [ "$(guest shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then up=1; break; fi
+      done
+      if [ "$up" = 1 ]; then
+        sleep 30
+        guest shell 'settings put global device_provisioned 1; settings put secure user_setup_complete 1; for wizard in org.lineageos.setupwizard com.google.android.setupwizard; do pm disable-user --user 0 $wizard; am force-stop $wizard; done; input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard; input keyevent KEYCODE_HOME' >/dev/null 2>&1 || true
+      fi
+      { echo "reboot: up=$up"; tail -5 "$dir/launcher.log" | cut -c1-200; } > "$repo/$n-reboot.txt" 2>&1 || true
+      shot "$n-reboot"; publish "$n-reboot"
+    fi
   done
   rm -f "$record.on"; mark "end"; kill "$guard" 2>/dev/null || true
 }
@@ -763,11 +780,15 @@ record_video() {
   rm -f "$record" "$record.on" "$events"
   mark() { echo "$(python3 -c 'import time; print(time.clock_gettime_ns(time.CLOCK_UPTIME_RAW))') $*" >> "$events"; }
   local started=$(date +%s) booted=0 i
-  UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" --reset --emulator "$EMULATOR" \
-    --display offscreen --offscreen-mirror "${VIDEO_MIRROR:-720}@$hertz" --width "${VIDEO_W:-2048}" --height "${VIDEO_H:-2732}" --dpi 264 --audio-output null \
-    ${VIDEO_DATA_GIB:+--data-gib "$VIDEO_DATA_GIB"} --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine "${VIDEO_ENGINE:-gadgets}" --adb-timeout 1800 --boot-timeout 3000 \
-    > "$dir/launcher.log" 2>&1 &
-  local launcher=$!
+  # Starts the guest; the argument is --reset for a new data disk or empty to keep it.
+  vm_launch() {
+    UML_FRAME_RECORD="$record" python3 tools/boot_android.py --release "$release" --instance "$WORK/instance-$name" $1 --emulator "$EMULATOR" \
+      --display offscreen --offscreen-mirror "${VIDEO_MIRROR:-720}@$hertz" --width "${VIDEO_W:-2048}" --height "${VIDEO_H:-2732}" --dpi 264 --audio-output null \
+      ${VIDEO_DATA_GIB:+--data-gib "$VIDEO_DATA_GIB"} --cpus "${VIDEO_CPUS:-$CPUS}" --memory "${VIDEO_MEMORY:-3G}" --engine "${VIDEO_ENGINE:-gadgets}" --adb-timeout 1800 --boot-timeout 3000 \
+      >> "$dir/launcher.log" 2>&1 &
+    launcher=$!
+  }
+  local launcher; : > "$dir/launcher.log"; vm_launch --reset
   for i in $(seq 1 120); do
     sleep 10
     kill -0 "$launcher" 2>/dev/null || { note "$name: launcher exited"; tail -5 "$dir/launcher.log" | cut -c1-200; break; }
