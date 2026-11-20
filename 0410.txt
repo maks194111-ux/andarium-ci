@@ -1,0 +1,30 @@
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.os.Handler.dispatchMessageImpl(Handler.java:142)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.os.Handler.dispatchMessage(Handler.java:125)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.os.Looper.loopOnce(Looper.java:296)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.os.Looper.loop(Looper.java:397)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.os.HandlerThread.run(HandlerThread.java:139)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at com.android.server.ServiceThread.run(ServiceThread.java:46)
+06:37:48.476  7757  7779 E AndroidRuntime: Caused by: java.security.InvalidKeyException: Keystore operation failed
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.keystore2.KeyStoreCryptoOperationUtils.getInvalidKeyException(KeyStoreCryptoOperationUtils.java:127)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.keystore2.KeyStoreCryptoOperationUtils.getExceptionForCipherInit(KeyStoreCryptoOperationUtils.java:146)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.keystore2.AndroidKeyStoreCipherSpiBase.ensureKeystoreOperationInitialized(AndroidKeyStoreCipherSpiBase.java:360)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.keystore2.AndroidKeyStoreCipherSpiBase.engineInit(AndroidKeyStoreCipherSpiBase.java:253)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher.tryTransformWithProvider(Cipher.java:2999)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher.tryCombinations(Cipher.java:2910)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher$SpiAndProviderUpdater.updateAndGetSpiAndProvider(Cipher.java:2815)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher.chooseProvider(Cipher.java:792)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher.init(Cipher.java:1307)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at javax.crypto.Cipher.init(Cipher.java:1242)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at com.android.server.locksettings.SyntheticPasswordCrypto.decrypt(SyntheticPasswordCrypto.java:74)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at com.android.server.locksettings.SyntheticPasswordCrypto.decryptBlob(SyntheticPasswordCrypto.java:163)
+06:37:48.476  7757  7779 E AndroidRuntime: 	... 20 more
+06:37:48.476  7757  7779 E AndroidRuntime: Caused by: android.security.KeyStoreException: Invalid key blob (internal Keystore code: -33 message: system/security/keystore2/src/security_level.rs:386: Failed to begin operation.
+06:37:48.476  7757  7779 E AndroidRuntime: 
+06:37:48.476  7757  7779 E AndroidRuntime: Caused by:
+06:37:48.476  7757  7779 E AndroidRuntime:     0: system/security/keystore2/src/security_level.rs:1058: upgrade_keyblob_if_required_with(key_id=Some(KeyIdGuard(-6610812475992740990)))
+06:37:48.476  7757  7779 E AndroidRuntime:     1: system/security/keystore2/src/utils.rs:496: Calling km_op
+06:37:48.476  7757  7779 E AndroidRuntime:     2: Error::Km(r#INVALID_KEY_BLOB)) (public error code: 10 internal Keystore code: -33)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.KeyStore2.getKeyStoreException(KeyStore2.java:429)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.KeyStoreSecurityLevel.createOperation(KeyStoreSecurityLevel.java:142)
+06:37:48.476  7757  7779 E AndroidRuntime: 	at android.security.keystore2.AndroidKeyStoreCipherSpiBase.ensureKeystoreOperationInitialized(AndroidKeyStoreCipherSpiBase.java:355)
+06:37:48.476  7757  7779 E AndroidRuntime: 	... 29 more
