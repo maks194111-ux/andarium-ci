@@ -1,10 +1,6 @@
-# 0301
+# 0302
 #noshot
-cd "$WORK/live-package" && adb -s "$SERIAL" install-multiple -i com.android.vending com.supercell.brawlstars.apk config.arm64_v8a.apk config.en.apk config.ru.apk config.xxhdpi.apk install_time_asset_pack.apk 2>&1 | tail -1
-guest logcat -c
-guest shell 'monkey -p com.supercell.brawlstars -c android.intent.category.LAUNCHER 1' >/dev/null 2>&1
-sleep 30
-guest logcat -d > "$WORK/lc.txt" 2>&1
 a=$(grep -a -n "nativeloader: Load .*libsupercell" "$WORK/lc.txt" | head -1 | cut -d: -f1); b=$(grep -a -n "Report  : Exiting" "$WORK/lc.txt" | head -1 | cut -d: -f1)
-echo "lines $a..$b"
-sed -n "${a},${b}p" "$WORK/lc.txt" | sed 's/^[0-9-]* //' | cut -c1-330 | head -120
+sed -n "${a},${b}p" "$WORK/lc.txt" | grep -a -E "avc|denied|seccomp|ptrace|brawl|Zygote|ActivityManager: (Start|Process|Kill)|libc  |DEBUG|tombstone|untrusted_app" | grep -av "WindowManager\|Shell" | sed 's/^[0-9-]* //' | cut -c1-360 | head -70
+echo "--- dmesg"; guest shell 'dmesg 2>&1 | tail -25' | cut -c1-240
+echo "--- what an app sees"; guest shell 'run-as com.supercell.brawlstars id 2>&1; getprop ro.boot.vbmeta.device_state; getprop ro.bootloader; getprop ro.product.property_source_order; getprop ro.product.board; getprop ro.board.platform; getprop ro.product.device; getprop ro.product.name; getprop ro.product.brand; getprop gsm.version.baseband; ls -la /dev/ | grep -iE "qemu|goldfish|vport|hvc|ubd|virtio" | head; ls /sys/class/power_supply 2>&1 | head; ls /system/bin/su /system/xbin/su /sbin/su 2>&1 | head -3; cat /proc/version'
