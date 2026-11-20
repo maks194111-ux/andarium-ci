@@ -1,4 +1,4 @@
-# 0304
+# 0305
 #noshot
 guest shell 'getprop ro.boot.verifiedbootstate; getprop ro.boot.flash.locked; getprop ro.hardware; getprop sys.boot_completed; pm list packages | grep -c supercell'
 guest logcat -c
