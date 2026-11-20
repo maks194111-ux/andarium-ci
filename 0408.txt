@@ -1,0 +1,7 @@
+green
+andarium
+1
+cmd: Can't find service: package
+0
+Can't find service: activity
+6.78 3.21 1.26 3/391 7155
