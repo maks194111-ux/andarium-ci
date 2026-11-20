@@ -1,3 +1,5 @@
-# 0005
-#noshot
-for i in $(seq 1 50); do grep -q 20 "$WORK/install.log" && break; sleep 5; done; cat "$WORK/install.log"; guest shell 'df -h /data | tail -1; pm list packages | grep supercell; cat /proc/loadavg'
+# 0006
+rec on; mark "Brawl Stars starts"
+guest shell 'monkey -p com.supercell.brawlstars -c android.intent.category.LAUNCHER 1' 2>&1 | tail -2
+sleep 40
+guest shell 'dumpsys activity activities | grep -m2 -E "ResumedActivity|topResumed"; cat /proc/loadavg; pidof com.supercell.brawlstars'
