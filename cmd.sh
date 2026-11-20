@@ -1,4 +1,9 @@
-# 0008
-#noshot
-grep -a -E " 4709 " "$WORK/lc.txt" | grep -a -v "AndroidRuntime: at \|Report  : at " | cut -c1-330 | head -60
-guest shell 'getprop ro.build.tags; getprop ro.build.type; getprop ro.debuggable; getprop ro.boot.verifiedbootstate; getprop ro.boot.flash.locked; getenforce; uname -a; getprop ro.build.fingerprint; getprop ro.product.model; getprop ro.hardware'
+# 0009
+guest shell 'pm uninstall com.supercell.brawlstars' ; rm -rf "$WORK/live-package" "$WORK/live-package.zip"
+curl -fsSL --retry 3 -o "$WORK/stk.apk" https://github.com/supertuxkart/stk-code/releases/download/1.5/SuperTuxKart-1.5.apk && ls -la "$WORK/stk.apk"
+adb -s "$SERIAL" install "$WORK/stk.apk" 2>&1 | tail -2
+guest shell 'pm list packages | grep -i tux; cat /proc/loadavg'
+rec on; mark "SuperTuxKart starts"
+guest shell 'monkey -p org.supertuxkart.stk -c android.intent.category.LAUNCHER 1' 2>&1 | tail -1
+sleep 45
+guest shell 'dumpsys activity activities | grep -m1 topResumed; pidof org.supertuxkart.stk'
