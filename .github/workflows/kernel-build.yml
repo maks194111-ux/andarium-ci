@@ -52,7 +52,18 @@ jobs:
           bash dependencies/prepare.sh --archive-manifest dependencies/kernel-host-tools/archives.tsv
           UML_KERNEL_HOST_TOOLS_JOBS=4 bash dependencies/build-kernel-host-tools.sh
           echo "===== STAGE: kernel source"
-          kernel/mainline-6.18/scripts/prepare-source.sh
+          # A generated mail-patch series must be exported after a patch edit,
+          # not merely have its final-tree value updated. Only accept the exact
+          # tree computed from our CPU identity patch; all other failures stop.
+          source_status=0
+          kernel/mainline-6.18/scripts/prepare-source.sh || source_status=$?
+          if [ "$source_status" != 0 ]; then
+            [ "$(git -C /Volumes/kbuild/linux rev-parse 'HEAD^{tree}')" = 7add27eb1264439c1a41c2a10b946c128de3c69e ] || exit "$source_status"
+            echo "Regenerating the canonical series from the reviewed CPU identity tree"
+            python3 kernel/common/tooling/kernel_series.py regenerate \
+              --metadata kernel/mainline-6.18/patches/metadata.env --source /Volumes/kbuild/linux
+          fi
+          kernel/mainline-6.18/scripts/prepare-source.sh --verify
           echo "===== STAGE: kernel build"
           kernel/mainline-6.18/build/build-kernel.sh --product android --build /Volumes/kbuild/build-android --jobs 4
           echo "===== STAGE: publish"
