@@ -59,6 +59,24 @@ def kernel_identity(root):
         "UML_KERNEL_FINAL_TREE='ee913342fecf9f7f9836b616f5c605a036da0098'",
         "UML_KERNEL_FINAL_TREE='7add27eb1264439c1a41c2a10b946c128de3c69e'",
     )
+    # Engine configure selects the custom Android bundle by the accepted
+    # descriptor's directory and verifies every other field against its manifest.
+    descriptor = root / "kernel/mainline-6.18/artifacts/accepted-android-4k.env"
+    replace_once(
+        descriptor,
+        "UML_KERNEL_ARTIFACT_RELEASE_ID='20261119-6.18.60-ca1'",
+        "UML_KERNEL_ARTIFACT_RELEASE_ID='20261120-6.18.60-cpu1'",
+    )
+    replace_once(
+        descriptor,
+        "UML_KERNEL_ARTIFACT_DIRECTORY_NAME='android-6.18-arm64-4k-20261119-6.18.60-ca1'",
+        "UML_KERNEL_ARTIFACT_DIRECTORY_NAME='android-6.18-arm64-4k-20261120-6.18.60-cpu1'",
+    )
+    replace_once(
+        descriptor,
+        "UML_KERNEL_ARTIFACT_FINAL_TREE='ee913342fecf9f7f9836b616f5c605a036da0098'",
+        "UML_KERNEL_ARTIFACT_FINAL_TREE='7add27eb1264439c1a41c2a10b946c128de3c69e'",
+    )
 
 
 def engine_identity(root):
