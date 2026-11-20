@@ -260,7 +260,8 @@ if [ "$NEWUP" = 1 ]; then
       rm -f "$WORK/phone-case.sparseimage"; mkdir -p "$WORK/phone-case-mount"
       hdiutil create -quiet -type SPARSE -size 10g -fs "Case-sensitive APFS" \
         -volname andarium-phone -o "$WORK/phone-case.sparseimage"
-      hdiutil attach -quiet -nobrowse -mountpoint "$WORK/phone-case-mount" "$WORK/phone-case.sparseimage"
+      hdiutil attach -quiet -nobrowse -owners on -mountpoint "$WORK/phone-case-mount" "$WORK/phone-case.sparseimage"
+      sudo -n diskutil enableOwnership "$WORK/phone-case-mount"
       if python3 "$HERE/sf_pipeline/phone_identity.py" "$AOT_TARGET" "$FSCK_EROFS" "$MKFS_EROFS" "$WORK/phone-case-mount"; then phone_ok=1; else phone_ok=0; fi
       hdiutil detach -quiet "$WORK/phone-case-mount" || hdiutil detach -quiet -force "$WORK/phone-case-mount"
       rm -f "$WORK/phone-case.sparseimage"; rmdir "$WORK/phone-case-mount"
